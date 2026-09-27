@@ -1,0 +1,11 @@
+RPMS/
+build-*/
+*.pro.user
+*.pro.user.*
+*.autosave
+Makefile
+*.o
+moc_*
+qrc_*
+.qmake.stash
+/harbour-fiatimago

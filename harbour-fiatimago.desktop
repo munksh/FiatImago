@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Version=1.1
+X-Nemo-Application-Type=silica-qt5
+Icon=harbour-fiatimago
+Exec=harbour-fiatimago
+Name=fiat imago
+
+[X-Sailjail]
+Permissions=Pictures
+OrganizationName=se.munkstolen
+ApplicationName=harbour-fiatimago
