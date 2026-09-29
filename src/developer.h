@@ -19,7 +19,7 @@ public:
 
 public slots:
     void load(const QVariantMap &source);
-    void render(const QVariantMap &recipe, bool uncropped, quint64 generation);
+    void render(const QVariantMap &recipe, bool uncropped, bool clipWarning, quint64 generation);
     void inspect(const QVariantMap &recipe, double u, double v, int width, int height);
     void exportImage(const QVariantMap &recipe, const QVariantMap &options);
 
@@ -53,6 +53,8 @@ class Developer : public QObject
     Q_PROPERTY(QVariantMap recipe READ recipe NOTIFY recipeChanged)
     Q_PROPERTY(QVariantList histogram READ histogram NOTIFY histogramChanged)
     Q_PROPERTY(bool uncropped READ uncropped WRITE setUncropped NOTIFY uncroppedChanged)
+    Q_PROPERTY(bool showClipping READ showClipping WRITE setShowClipping NOTIFY showClippingChanged)
+    Q_PROPERTY(bool loupe READ loupe WRITE setLoupe NOTIFY loupeChanged)
     Q_PROPERTY(bool hasClipboard READ hasClipboard NOTIFY clipboardChanged)
     Q_PROPERTY(bool inspectBusy READ inspectBusy NOTIFY inspectBusyChanged)
     Q_PROPERTY(int fullWidth READ fullWidth NOTIFY inspectChanged)
@@ -72,6 +74,10 @@ public:
     QVariantList histogram() const { return m_histogram; }
     bool uncropped() const { return m_uncropped; }
     void setUncropped(bool uncropped);
+    bool showClipping() const { return m_showClipping; }
+    void setShowClipping(bool show);
+    bool loupe() const { return m_loupe; }
+    void setLoupe(bool loupe);
     bool hasClipboard() const { return !s_clipboard.isEmpty(); }
     bool inspectBusy() const { return m_inspectBusy; }
     int fullWidth() const { return m_fullWidth; }
@@ -99,6 +105,8 @@ signals:
     void recipeChanged();
     void histogramChanged();
     void uncroppedChanged();
+    void showClippingChanged();
+    void loupeChanged();
     void clipboardChanged();
     void inspectBusyChanged();
     void exportingChanged();
@@ -109,7 +117,7 @@ signals:
     void exportFailed(const QString &message);
 
     void requestLoad(const QVariantMap &source);
-    void requestRender(const QVariantMap &recipe, bool uncropped, quint64 generation);
+    void requestRender(const QVariantMap &recipe, bool uncropped, bool clipWarning, quint64 generation);
     void requestInspect(const QVariantMap &recipe, double u, double v, int width, int height);
     void requestExport(const QVariantMap &recipe, const QVariantMap &options);
 
@@ -123,6 +131,7 @@ private:
 
     void apply(const Recipe &recipe);
     void render();
+    void renderInspect();
     void setBusy(bool busy);
     void setMessage(const QString &message);
 
@@ -139,10 +148,18 @@ private:
     QString m_message;
     QVariantList m_histogram;
     bool m_uncropped = false;
+    bool m_showClipping = false;
+    bool m_loupe = false;
     bool m_inFlight = false;
     bool m_dirty = false;
     quint64 m_generation = 0;
     bool m_inspectBusy = false;
+    bool m_inspectDirty = false;
+    bool m_hasInspect = false;
+    double m_inspectU = 0.5;
+    double m_inspectV = 0.5;
+    int m_inspectWidth = 0;
+    int m_inspectHeight = 0;
     int m_fullWidth = 0;
     int m_fullHeight = 0;
     bool m_exporting = false;

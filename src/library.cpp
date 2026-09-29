@@ -100,8 +100,10 @@ void Library::refresh()
 
     struct Suffix { const char *text; int kind; };
     static const Suffix suffixes[] = {
-        { ".warm.raw16", 3 }, { ".warm.json", 4 }, { ".raw16", 1 }, { ".json", 2 },
-        { ".jpg", 0 }, { ".jpeg", 0 }
+        { ".warm.raw16", 3 }, { ".warm.raw12", 3 }, { ".warm.raw10", 3 }, { ".warm.raw8", 3 },
+        { ".warm.json", 4 },
+        { ".raw16", 1 }, { ".raw12", 1 }, { ".raw10", 1 }, { ".raw8", 1 },
+        { ".json", 2 }, { ".jpg", 0 }, { ".jpeg", 0 }
     };
 
     QMap<QString, Found> groups;

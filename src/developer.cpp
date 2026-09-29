@@ -72,12 +72,13 @@ void DevelopWorker::load(const QVariantMap &source)
     emit loaded(true, message, m_raw, double(m_preview.width) / m_preview.height, original);
 }
 
-void DevelopWorker::render(const QVariantMap &recipe, bool uncropped, quint64 generation)
+void DevelopWorker::render(const QVariantMap &recipe, bool uncropped, bool clipWarning, quint64 generation)
 {
     const Recipe r = Recipe::fromMap(recipe);
     const QSizeF frame = Pipeline::frameSize(m_preview.width, m_preview.height, r, !uncropped);
     const QImage image = Pipeline::render(m_preview, r, m_raw, !uncropped,
-                                          Pipeline::fitted(frame, PreviewSize));
+                                          Pipeline::fitted(frame, PreviewSize),
+                                          QRectF(0.0, 0.0, 1.0, 1.0), clipWarning);
     emit rendered(image, Pipeline::histogram(image), generation);
 }
 
@@ -187,6 +188,23 @@ void Developer::setUncropped(bool uncropped)
     render();
 }
 
+void Developer::setShowClipping(bool show)
+{
+    if (show == m_showClipping)
+        return;
+    m_showClipping = show;
+    emit showClippingChanged();
+    render();
+}
+
+void Developer::setLoupe(bool loupe)
+{
+    if (loupe == m_loupe)
+        return;
+    m_loupe = loupe;
+    emit loupeChanged();
+}
+
 void Developer::open(const QVariantMap &source)
 {
     m_key = source.value(QStringLiteral("key")).toString();
@@ -250,11 +268,12 @@ void Developer::pasteSettings()
 
 void Developer::inspect(double u, double v, int width, int height)
 {
-    if (!m_loaded)
-        return;
-    m_inspectBusy = true;
-    emit inspectBusyChanged();
-    emit requestInspect(m_recipe.toMap(), u, v, width, height);
+    m_inspectU = u;
+    m_inspectV = v;
+    m_inspectWidth = width;
+    m_inspectHeight = height;
+    m_hasInspect = true;
+    renderInspect();
 }
 
 void Developer::exportImage(bool half, int quality, bool keepCameraData)
@@ -296,6 +315,8 @@ void Developer::onLoaded(bool ok, const QString &message, bool raw, double frame
     emit loadedChanged();
     emit originalChanged();
     render();
+    if (m_loupe)
+        renderInspect();
 }
 
 void Developer::onRendered(const QImage &image, const QVariantList &histogram, quint64 generation)
@@ -318,13 +339,19 @@ void Developer::onInspected(const QImage &image, int frameWidth, int frameHeight
     m_fullWidth = frameWidth;
     m_fullHeight = frameHeight;
     m_inspectBusy = false;
-    emit inspectBusyChanged();
     emit inspectChanged();
+    if (m_inspectDirty) {
+        m_inspectDirty = false;
+        renderInspect();
+    }
+    if (!m_inspectBusy)
+        emit inspectBusyChanged();
 }
 
 void Developer::onInspectFailed(const QString &message)
 {
     m_inspectBusy = false;
+    m_inspectDirty = false;
     emit inspectBusyChanged();
     setMessage(message);
 }
@@ -350,6 +377,8 @@ void Developer::apply(const Recipe &recipe)
     m_recipe = recipe;
     emit recipeChanged();
     render();
+    if (m_loupe)
+        renderInspect();
     m_saveTimer.start();
 }
 
@@ -362,7 +391,20 @@ void Developer::render()
         return;
     }
     m_inFlight = true;
-    emit requestRender(m_recipe.toMap(), m_uncropped, ++m_generation);
+    emit requestRender(m_recipe.toMap(), m_uncropped, m_showClipping, ++m_generation);
+}
+
+void Developer::renderInspect()
+{
+    if (!m_loaded || !m_hasInspect)
+        return;
+    if (m_inspectBusy) {
+        m_inspectDirty = true;
+        return;
+    }
+    m_inspectBusy = true;
+    emit inspectBusyChanged();
+    emit requestInspect(m_recipe.toMap(), m_inspectU, m_inspectV, m_inspectWidth, m_inspectHeight);
 }
 
 void Developer::setBusy(bool busy)

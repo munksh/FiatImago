@@ -13,12 +13,19 @@ inline double smoothstep(double e0, double e1, double x)
     return t * t * (3.0 - 2.0 * t);
 }
 
+// Output point -> source point: crop, zoom, straighten, perspective, flip and
+// the quarter turns, in that order. The zoom is the smallest that keeps the
+// frame's corners inside the photo, so no empty corners ever show. A
+// perspective transform keeps straight lines straight, which is why checking
+// the four corners is enough.
 struct Geometry
 {
     double ws, hs, wo, ho;
     int rotation;
     bool flip;
-    double cosT, sinT, zoom;
+    double cosT, sinT;
+    double pv, ph;
+    double zoom;
     double cx, cy, cw, ch;
 
     Geometry(int sourceWidth, int sourceHeight, const Recipe &r, bool applyCrop)
@@ -30,7 +37,8 @@ struct Geometry
         const double theta = r.straighten * Pi / 180.0;
         cosT = std::cos(theta);
         sinT = std::sin(theta);
-        zoom = std::abs(cosT) + std::max(wo / ho, ho / wo) * std::abs(sinT);
+        pv = r.perspectiveV / 100.0 * MaxPerspective;
+        ph = r.perspectiveH / 100.0 * MaxPerspective;
         if (applyCrop) {
             cx = r.cropX;
             cy = r.cropY;
@@ -42,14 +50,24 @@ struct Geometry
             cw = 1.0;
             ch = 1.0;
         }
+        zoom = coverZoom();
+    }
+
+    inline void unwarp(double dx, double dy, double &qx, double &qy) const
+    {
+        const double xn = (cosT * dx + sinT * dy) / wo;
+        const double yn = (-sinT * dx + cosT * dy) / ho;
+        const double d = 1.0 - pv * yn + ph * xn;
+        qx = xn / d * wo + wo / 2.0;
+        qy = yn / d * ho + ho / 2.0;
     }
 
     inline void map(double u, double v, double &sx, double &sy) const
     {
-        const double dx = (cx + u * cw) * wo - wo / 2.0;
-        const double dy = (cy + v * ch) * ho - ho / 2.0;
-        double qx = (cosT * dx + sinT * dy) / zoom + wo / 2.0;
-        const double qy = (-sinT * dx + cosT * dy) / zoom + ho / 2.0;
+        const double dx = ((cx + u * cw) * wo - wo / 2.0) / zoom;
+        const double dy = ((cy + v * ch) * ho - ho / 2.0) / zoom;
+        double qx, qy;
+        unwarp(dx, dy, qx, qy);
         if (flip)
             qx = wo - qx;
         switch (rotation) {
@@ -59,7 +77,44 @@ struct Geometry
         default: sx = qx; sy = qy; break;
         }
     }
+
+private:
+    bool covers(double z) const
+    {
+        const double slack = 1e-6 * std::max(wo, ho);
+        for (int corner = 0; corner < 4; ++corner) {
+            const double dx = ((corner & 1) ? wo : -wo) / 2.0 / z;
+            const double dy = ((corner & 2) ? ho : -ho) / 2.0 / z;
+            double qx, qy;
+            unwarp(dx, dy, qx, qy);
+            if (qx < -slack || qx > wo + slack || qy < -slack || qy > ho + slack)
+                return false;
+        }
+        return true;
+    }
+
+    double coverZoom() const
+    {
+        if (covers(1.0))
+            return 1.0;
+        double low = 1.0;
+        double high = 2.0;
+        while (!covers(high) && high < 64.0)
+            high *= 2.0;
+        for (int i = 0; i < 40; ++i) {
+            const double mid = (low + high) / 2.0;
+            if (covers(mid))
+                high = mid;
+            else
+                low = mid;
+        }
+        return high;
+    }
+
+    static constexpr double MaxPerspective = 0.6;
 };
+
+constexpr double Geometry::MaxPerspective;
 
 inline void sample(const ImageBuffer &b, double x, double y, float out[3])
 {
@@ -161,7 +216,7 @@ QSize Pipeline::fitted(const QSizeF &frame, int maxLongEdge)
 }
 
 QImage Pipeline::render(const ImageBuffer &source, const Recipe &r, bool raw, bool applyCrop,
-                        const QSize &size, const QRectF &window)
+                        const QSize &size, const QRectF &window, bool clipWarning)
 {
     if (source.isNull() || size.isEmpty() || window.isEmpty())
         return QImage();
@@ -264,6 +319,19 @@ QImage Pipeline::render(const ImageBuffer &source, const Recipe &r, bool raw, bo
         }
     });
 
+    std::vector<unsigned char> clipped;
+    if (clipWarning) {
+        clipped.assign(static_cast<size_t>(w) * h, 0);
+        Imaging::parallelFor(h, [&](int begin, int end) {
+            for (int y = begin; y < end; ++y) {
+                const float *p = image.row(y);
+                unsigned char *m = clipped.data() + static_cast<size_t>(y) * w;
+                for (int x = 0; x < w; ++x)
+                    m[x] = (p[x * 3] >= 1.0f || p[x * 3 + 1] >= 1.0f || p[x * 3 + 2] >= 1.0f) ? 1 : 0;
+            }
+        });
+    }
+
     if (sharpenAmount > 0.0f) {
         ImageBuffer soft = image;
         Imaging::gaussianBlur(soft, sharpenSigma);
@@ -281,8 +349,14 @@ QImage Pipeline::render(const ImageBuffer &source, const Recipe &r, bool raw, bo
     Imaging::parallelFor(size.height(), [&](int begin, int end) {
         for (int y = begin; y < end; ++y) {
             const float *p = image.row(y + pad) + pad * 3;
+            const unsigned char *m = clipWarning
+                    ? clipped.data() + static_cast<size_t>(y + pad) * w + pad : nullptr;
             QRgb *line = reinterpret_cast<QRgb *>(result.scanLine(y));
             for (int x = 0; x < size.width(); ++x) {
+                if (m && m[x]) {
+                    line[x] = qRgb(235, 40, 35);
+                    continue;
+                }
                 int c[3];
                 for (int k = 0; k < 3; ++k) {
                     const int v = int(p[x * 3 + k] * 255.0f + 0.5f);

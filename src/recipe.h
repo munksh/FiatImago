@@ -22,6 +22,8 @@ struct Recipe
     int rotation = 0;
     bool flip = false;
     double straighten = 0.0;
+    double perspectiveV = 0.0;
+    double perspectiveH = 0.0;
     double cropX = 0.0;
     double cropY = 0.0;
     double cropW = 1.0;

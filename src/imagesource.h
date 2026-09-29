@@ -11,8 +11,9 @@ namespace ImageSource {
 // Linear sRGB, upright. maxLongEdge 0 reads at full size.
 bool loadJpeg(const QString &path, int maxLongEdge, ImageBuffer &out, QString *error);
 
-// Linear sRGB in sensor orientation. Half size bins each 2x2 cell into one
-// pixel; full size demosaics (Malvar-He-Cutler).
+// Linear sRGB in sensor orientation, from RAW8, RAW10, RAW12 or RAW16. Half
+// size bins each 2x2 cell into one pixel; full size demosaics
+// (Malvar-He-Cutler).
 bool loadRaw(const QString &rawPath, const QString &json, const QString &altJson,
              bool halfSize, ImageBuffer &out, RawMeta *meta, QString *error);
 

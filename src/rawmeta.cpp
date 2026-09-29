@@ -6,6 +6,8 @@
 #include <QJsonObject>
 #include <QVector>
 
+#include <algorithm>
+
 namespace {
 
 QJsonObject readObject(const QString &path)
@@ -129,6 +131,42 @@ int cfaFromName(const QString &name)
     return -1;
 }
 
+int bitsFromText(const QString &text)
+{
+    const QString t = text.toUpper();
+    if (t.contains(QLatin1String("RAW10"))) return 10;
+    if (t.contains(QLatin1String("RAW12"))) return 12;
+    if (t.contains(QLatin1String("RAW16")) || t.contains(QLatin1String("RAW_SENSOR"))) return 16;
+    if (t.contains(QLatin1String("RAW8"))) return 8;
+    return 0;
+}
+
+int bitsFromValue(const QJsonValue &value)
+{
+    if (value.isString())
+        return bitsFromText(value.toString());
+    if (value.isDouble()) {
+        const int n = int(value.toDouble());
+        return (n == 8 || n == 10 || n == 12 || n == 16) ? n : 0;
+    }
+    return 0;
+}
+
+int bitsFromLayout(int width, int rowStride, int pixelStride)
+{
+    if (pixelStride == 2)
+        return 16;
+    if (pixelStride == 1)
+        return 8;
+    if (width <= 0 || rowStride <= 0)
+        return 16;
+    const double perPixel = double(rowStride) / width;
+    if (perPixel >= 1.9) return 16;
+    if (perPixel >= 1.45) return 12;
+    if (perPixel >= 1.2) return 10;
+    return 8;
+}
+
 bool allZero(const QVector<double> &v)
 {
     for (double d : v) {
@@ -142,12 +180,23 @@ bool allZero(const QVector<double> &v)
 
 bool RawMeta::isValid() const
 {
-    return width > 0 && height > 0 && rowStride >= width * pixelStride
-            && pixelStride >= 2 && cfa >= 0 && cfa <= 3 && whiteLevel > 0.0;
+    return width > 0 && height > 0 && cfa >= 0 && cfa <= 3 && whiteLevel > 0.0
+            && (bits == 8 || bits == 10 || bits == 12 || bits == 16)
+            && rowStride >= bytesPerRow();
 }
 
-bool readRawMeta(const QString &primaryJson, const QString &secondaryJson,
-                 RawMeta &meta, QString *error)
+int RawMeta::bytesPerRow() const
+{
+    switch (bits) {
+    case 8: return width;
+    case 10: return (width * 10 + 7) / 8;
+    case 12: return (width * 12 + 7) / 8;
+    default: return width * std::max(2, pixelStride);
+    }
+}
+
+bool readRawMeta(const QString &rawPath, const QString &primaryJson,
+                 const QString &secondaryJson, RawMeta &meta, QString *error)
 {
     const Sources s(readObject(primaryJson), readObject(secondaryJson));
     if (s.isEmpty()) {
@@ -158,8 +207,16 @@ bool readRawMeta(const QString &primaryJson, const QString &secondaryJson,
 
     meta.width = s.integer(QStringLiteral("width"), 0);
     meta.height = s.integer(QStringLiteral("height"), 0);
-    meta.pixelStride = s.integer(QStringLiteral("pixel_stride"), 2);
-    meta.rowStride = s.integer(QStringLiteral("row_stride"), meta.width * meta.pixelStride);
+    meta.pixelStride = s.integer(QStringLiteral("pixel_stride"), 0);
+    meta.rowStride = s.integer(QStringLiteral("row_stride"), 0);
+
+    meta.bits = bitsFromValue(s.value(QStringLiteral("format")));
+    if (meta.bits == 0)
+        meta.bits = bitsFromText(rawPath.section(QLatin1Char('.'), -1));
+    if (meta.bits == 0)
+        meta.bits = bitsFromLayout(meta.width, meta.rowStride, meta.pixelStride);
+    if (meta.rowStride <= 0)
+        meta.rowStride = meta.bytesPerRow();
 
     meta.cfa = s.integer(QStringLiteral("cfa_value"), -1);
     if (meta.cfa < 0 || meta.cfa > 3)
@@ -203,7 +260,7 @@ bool readRawMeta(const QString &primaryJson, const QString &secondaryJson,
 
     if (!meta.isValid()) {
         if (error)
-            *error = QStringLiteral("The RAW sidecar is missing size, layout or white level.");
+            *error = QStringLiteral("The RAW sidecar is missing size, layout, format or white level.");
         return false;
     }
     return true;

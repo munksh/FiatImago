@@ -80,14 +80,38 @@ public:
 
     inline float at(int x, int y) const
     {
-        const uchar *p = m_base + qint64(y) * m_meta.rowStride + qint64(x) * m_meta.pixelStride;
-        const int raw = p[0] | (p[1] << 8);
+        const int raw = sample(x, y);
         const int idx = ((y & 1) << 1) | (x & 1);
         const float v = (raw - m_black[idx]) * m_scale[idx];
         return v < 0.0f ? 0.0f : v;
     }
 
 private:
+    // Android's packings: RAW10 keeps the high eight bits of four pixels in
+    // four bytes and their low two bits in a fifth; RAW12 keeps two pixels
+    // in three bytes, the shared byte holding both low nibbles.
+    inline int sample(int x, int y) const
+    {
+        const uchar *row = m_base + qint64(y) * m_meta.rowStride;
+        switch (m_meta.bits) {
+        case 8:
+            return row[x];
+        case 10: {
+            const uchar *p = row + (x >> 2) * 5;
+            const int i = x & 3;
+            return (p[i] << 2) | ((p[4] >> (i * 2)) & 0x3);
+        }
+        case 12: {
+            const uchar *p = row + (x >> 1) * 3;
+            return (x & 1) ? ((p[1] << 4) | (p[2] >> 4)) : ((p[0] << 4) | (p[2] & 0x0f));
+        }
+        default: {
+            const uchar *p = row + qint64(x) * std::max(2, m_meta.pixelStride);
+            return p[0] | (p[1] << 8);
+        }
+        }
+    }
+
     const uchar *m_base;
     const RawMeta &m_meta;
     float m_black[4];
@@ -218,7 +242,7 @@ bool ImageSource::loadRaw(const QString &rawPath, const QString &json, const QSt
                           bool halfSize, ImageBuffer &out, RawMeta *metaOut, QString *error)
 {
     RawMeta meta;
-    if (!readRawMeta(json, altJson, meta, error))
+    if (!readRawMeta(rawPath, json, altJson, meta, error))
         return false;
 
     QFile file(rawPath);
@@ -228,7 +252,7 @@ bool ImageSource::loadRaw(const QString &rawPath, const QString &json, const QSt
         return false;
     }
     const QByteArray data = file.readAll();
-    const qint64 needed = qint64(meta.height - 1) * meta.rowStride + qint64(meta.width) * meta.pixelStride;
+    const qint64 needed = qint64(meta.height - 1) * meta.rowStride + meta.bytesPerRow();
     if (data.size() < needed) {
         if (error)
             *error = QStringLiteral("The RAW file is shorter than its sidecar says.");

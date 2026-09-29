@@ -19,8 +19,11 @@ QSizeF frameSize(int sourceWidth, int sourceHeight, const Recipe &recipe, bool a
 QSize fitted(const QSizeF &frame, int maxLongEdge);
 
 // window is the part of the frame to render, in frame fractions.
+// clipWarning paints pixels that reach white in any channel red; for the
+// preview only, never for an export.
 QImage render(const ImageBuffer &source, const Recipe &recipe, bool raw, bool applyCrop,
-              const QSize &size, const QRectF &window = QRectF(0.0, 0.0, 1.0, 1.0));
+              const QSize &size, const QRectF &window = QRectF(0.0, 0.0, 1.0, 1.0),
+              bool clipWarning = false);
 
 QVariantList histogram(const QImage &image);
 

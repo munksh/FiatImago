@@ -18,6 +18,15 @@ Page {
 
     property string tool: "light"
     property bool holding: false
+    property real loupeU: 0.5
+    property real loupeV: 0.5
+    readonly property int loupeSize: Math.round(Math.min(stage.width, stage.height) * 0.45)
+
+    function showLoupe() {
+        dev.inspect(loupeU, loupeV, loupeSize, loupeSize)
+    }
+
+    onToolChanged: if (tool === "detail") showLoupe()
 
     allowedOrientations: Orientation.Portrait
 
@@ -72,6 +81,7 @@ Page {
     Developer {
         id: dev
         uncropped: page.tool === "crop"
+        loupe: page.tool === "detail"
     }
 
     Rectangle {
@@ -151,7 +161,62 @@ Page {
                         var u = (mouse.x - r.x) / r.width
                         var v = (mouse.y - r.y) / r.height
                         if (u < 0 || u > 1 || v < 0 || v > 1) return
-                        pageStack.push(Qt.resolvedUrl("InspectPage.qml"), { developer: dev, u: u, v: v })
+                        if (page.tool === "detail") {
+                            page.loupeU = u
+                            page.loupeV = v
+                            page.showLoupe()
+                        } else {
+                            pageStack.push(Qt.resolvedUrl("InspectPage.qml"), { developer: dev, u: u, v: v })
+                        }
+                    }
+                }
+
+                Rectangle {
+                    readonly property rect r: view.paintedRect
+                    readonly property real side: dev.fullWidth > 0
+                                                 ? page.loupeSize / dev.fullWidth * r.width : 0
+                    visible: page.tool === "detail" && dev.loaded && side > 0
+                    x: view.x + r.x + page.loupeU * r.width - side / 2
+                    y: view.y + r.y + page.loupeV * r.height - side / 2
+                    width: side
+                    height: side
+                    color: "transparent"
+                    border.color: FiatImagoTheme.primaryText
+                    border.width: 2
+                }
+
+                Rectangle {
+                    id: loupe
+                    visible: page.tool === "detail" && dev.loaded
+                    anchors.right: view.right
+                    anchors.bottom: view.bottom
+                    width: page.loupeSize + 4
+                    height: page.loupeSize + 4
+                    color: FiatImagoTheme.paper
+                    border.color: FiatImagoTheme.primaryText
+                    border.width: 2
+                    clip: true
+
+                    DevelopView {
+                        anchors.fill: parent
+                        anchors.margins: 2
+                        developer: dev
+                        mode: "inspect"
+                    }
+
+                    BusyIndicator {
+                        anchors.centerIn: parent
+                        size: BusyIndicatorSize.Small
+                        running: loupe.visible && dev.inspectBusy
+                    }
+
+                    Label {
+                        anchors.left: parent.left
+                        anchors.bottom: parent.bottom
+                        anchors.margins: Theme.paddingSmall
+                        text: "100 %"
+                        color: FiatImagoTheme.primaryText
+                        font.pixelSize: Theme.fontSizeTiny
                     }
                 }
 
@@ -270,6 +335,13 @@ Page {
                     value: page.value("blacks")
                     onMoved: dev.set("blacks", newValue)
                 }
+
+                LinkText {
+                    x: Theme.horizontalPageMargin - Theme.paddingSmall
+                    text: dev.showClipping ? qsTr("hide blown highlights") : qsTr("show blown highlights in red")
+                    color: FiatImagoTheme.primaryText
+                    onClicked: dev.showClipping = !dev.showClipping
+                }
             }
 
             Column {
@@ -319,13 +391,23 @@ Page {
 
                 AdjustSlider {
                     label: qsTr("Straighten")
-                    minimumValue: -15
-                    maximumValue: 15
+                    minimumValue: -45
+                    maximumValue: 45
                     stepSize: 0.1
                     decimals: 1
                     unit: "°"
                     value: page.value("straighten")
                     onMoved: dev.set("straighten", newValue)
+                }
+                AdjustSlider {
+                    label: qsTr("Vertical perspective")
+                    value: page.value("perspectiveV")
+                    onMoved: dev.set("perspectiveV", newValue)
+                }
+                AdjustSlider {
+                    label: qsTr("Horizontal perspective")
+                    value: page.value("perspectiveH")
+                    onMoved: dev.set("perspectiveH", newValue)
                 }
 
                 Row {
@@ -347,6 +429,8 @@ Page {
                         color: FiatImagoTheme.primaryText
                         onClicked: {
                             dev.set("straighten", 0)
+                            dev.set("perspectiveV", 0)
+                            dev.set("perspectiveH", 0)
                             page.chooseAspect("original")
                             dev.setCrop(0, 0, 1, 1)
                         }
@@ -381,7 +465,7 @@ Page {
                     x: Theme.horizontalPageMargin
                     width: parent.width - 2 * Theme.horizontalPageMargin
                     wrapMode: Text.WordWrap
-                    text: qsTr("Tap the photo to judge sharpness at 100 %.")
+                    text: qsTr("The loupe shows the photo at 100 %. Tap the photo to move it.")
                     color: FiatImagoTheme.secondaryText
                     font.pixelSize: Theme.fontSizeExtraSmall
                 }
