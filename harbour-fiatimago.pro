@@ -64,6 +64,7 @@ DISTFILES += \
     qml/components/LinkText.qml \
     qml/components/FiatButton.qml \
     rpm/harbour-fiatimago.spec \
+    CHANGELOG.md \
     harbour-fiatimago.desktop \
     LICENSE
 
