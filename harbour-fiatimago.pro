@@ -19,6 +19,7 @@ HEADERS += \
     src/recipe.h \
     src/pipeline.h \
     src/recipestore.h \
+    src/presetstore.h \
     src/library.h \
     src/thumbnailprovider.h \
     src/exporter.h \
@@ -33,6 +34,7 @@ SOURCES += \
     src/recipe.cpp \
     src/pipeline.cpp \
     src/recipestore.cpp \
+    src/presetstore.cpp \
     src/library.cpp \
     src/thumbnailprovider.cpp \
     src/exporter.cpp \
@@ -48,11 +50,13 @@ DISTFILES += \
     qml/pages/EditPage.qml \
     qml/pages/InspectPage.qml \
     qml/pages/ExportPage.qml \
+    qml/pages/SaveLookPage.qml \
     qml/pages/AboutPage.qml \
     qml/pages/images/family/*.png \
     qml/components/AdjustSlider.qml \
     qml/components/CropOverlay.qml \
     qml/components/Histogram.qml \
+    qml/components/LookGrid.qml \
     qml/components/PageHead.qml \
     qml/components/SectionLabel.qml \
     qml/components/MunkstolenMark.qml \

@@ -57,11 +57,11 @@ Page {
             subtitle: page.name
         }
 
-        Label {
+        SectionLabel {
             x: Theme.horizontalPageMargin
+            width: parent.width - 2 * Theme.horizontalPageMargin
+            horizontalAlignment: Text.AlignRight
             text: qsTr("Size")
-            color: FiatImagoTheme.secondaryText
-            font.pixelSize: Theme.fontSizeExtraSmall
         }
         WordChoice {
             x: Theme.horizontalPageMargin
@@ -84,12 +84,12 @@ Page {
             onMoved: qualitySetting.value = Math.round(newValue)
         }
 
-        Label {
+        SectionLabel {
             x: Theme.horizontalPageMargin
+            width: parent.width - 2 * Theme.horizontalPageMargin
+            horizontalAlignment: Text.AlignRight
             visible: page.hasCameraData
             text: qsTr("Camera data")
-            color: FiatImagoTheme.secondaryText
-            font.pixelSize: Theme.fontSizeExtraSmall
         }
         WordChoice {
             x: Theme.horizontalPageMargin
@@ -103,11 +103,11 @@ Page {
             onChosen: cameraDataSetting.value = value
         }
 
-        Label {
+        SectionLabel {
             x: Theme.horizontalPageMargin
+            width: parent.width - 2 * Theme.horizontalPageMargin
+            horizontalAlignment: Text.AlignRight
             text: qsTr("Saved to")
-            color: FiatImagoTheme.secondaryText
-            font.pixelSize: Theme.fontSizeExtraSmall
         }
         Label {
             x: Theme.horizontalPageMargin

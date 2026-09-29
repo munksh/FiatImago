@@ -36,18 +36,33 @@ pixels, for the same reason.
   key in the sidecar, else the file extension, else the row layout. Rows
   read with `row_stride`, black level subtracted per CFA
   position, scaled to the white level, white balance from
-  `neutral_color_point`, colour through `forward_matrix2` (or 1) into
-  linear sRGB. Preview bins each 2×2 cell; export and 100 % demosaic with
+  `neutral_color_point`, colour through the camera's own
+  `capture_color_transform` for the shot (or, without it, `forward_matrix2`
+  or 1) into linear sRGB. Preview bins each 2×2 cell; export and 100 % demosaic with
   Malvar–He–Cutler. The RAW is turned to match its sibling JPEG and brought
   to the JPEG's brightness.
 - **JPEG:** read upright (EXIF orientation), linearised.
 - **Develop:** crop / straighten / perspective / rotate / flip as one
   sampling transform, zoomed just enough that no empty corners show,
   then temperature and tint, exposure, a tone curve on luminance (RAW gets a
-  gentle base contrast and a highlight shoulder), saturation and vibrance,
+  gentle base contrast and a highlight shoulder), a colour mixer (hue,
+  saturation and lightness for eight hue bands, lightness kept when colour is
+  taken away), saturation and vibrance,
   vignette, blur, sRGB, sharpening.
 - **Export:** JPEG with the camera's EXIF block copied from the sibling JPEG,
   its Orientation set to 1.
+
+Looks are starting points: a set of light, colour, detail and effects values
+without the crop, applied with a strength from 0 to 150 %. Ten are built in;
+your own are saved in `presets.json` in the app's data folder.
+
+Effects include split toning (a hue and strength for shadows and highlights,
+and a balance) and the triangle pattern Sailfish draws on its own
+backgrounds, measured from a screenshot and repeated at a size relative to
+the frame.
+
+Photos are found in Pictures, Pictures/Camera and Pictures/RAWfish, and on a
+memory card in the same folders and in DCIM.
 
 Edits are stored in the app's own data folder (`recipes.json`), keyed by the
 photo's path.

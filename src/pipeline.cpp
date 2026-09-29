@@ -197,6 +197,226 @@ private:
 
 constexpr double ToneCurve::MaxY;
 
+// Power 2.2 there and back through tables, so the mixer's perceptual
+// space costs no pow() per pixel.
+class Gamma
+{
+public:
+    Gamma()
+    {
+        m_encode.resize(Size + 1);
+        m_decode.resize(Size + 1);
+        for (int i = 0; i <= Size; ++i) {
+            m_encode[i] = float(std::pow(double(i) / Size * MaxIn, 1.0 / 2.2));
+            m_decode[i] = float(std::pow(double(i) / Size * MaxOut, 2.2));
+        }
+    }
+    inline float encode(float x) const { return lookup(m_encode, x / MaxIn); }
+    inline float decode(float v) const { return lookup(m_decode, v / MaxOut); }
+
+private:
+    static inline float lookup(const std::vector<float> &t, float f)
+    {
+        if (!(f > 0.0f))
+            return t[0];
+        if (f >= 1.0f)
+            return t[Size];
+        const float x = f * Size;
+        const int i = int(x);
+        return t[i] + (t[i + 1] - t[i]) * (x - i);
+    }
+    static const int Size = 8192;
+    static constexpr float MaxIn = 4.0f;
+    static constexpr float MaxOut = 1.9f;
+    std::vector<float> m_encode;
+    std::vector<float> m_decode;
+};
+
+constexpr float Gamma::MaxIn;
+constexpr float Gamma::MaxOut;
+
+// Moves hue, saturation and lightness per colour band in HSV on gamma-encoded
+// values. A pixel belongs to the two bands its hue lies between, blended
+// smoothly, so neighbouring colours never tear. Greys have no hue and are
+// left alone.
+class Mixer
+{
+public:
+    explicit Mixer(const Recipe &r)
+        : m_active(false)
+    {
+        for (int b = 0; b < Recipe::Bands; ++b) {
+            m_hue[b] = float(r.mixHue[b]);
+            m_sat[b] = float(r.mixSat[b] / 100.0);
+            m_lum[b] = float(r.mixLum[b] / 100.0 * 0.5);
+            if (r.mixHue[b] != 0.0 || r.mixSat[b] != 0.0 || r.mixLum[b] != 0.0)
+                m_active = true;
+            m_centre[b] = float(Recipe::bandCentres()[b]);
+        }
+    }
+
+    bool active() const { return m_active; }
+
+    inline void apply(float px[3]) const
+    {
+        const float r = m_gamma.encode(px[0]);
+        const float g = m_gamma.encode(px[1]);
+        const float b = m_gamma.encode(px[2]);
+        const float mx = std::max(r, std::max(g, b));
+        const float mn = std::min(r, std::min(g, b));
+        const float c = mx - mn;
+        if (c < 1e-5f || mx < 1e-5f)
+            return;
+        float h;
+        if (mx == r)
+            h = 60.0f * std::fmod((g - b) / c + 6.0f, 6.0f);
+        else if (mx == g)
+            h = 60.0f * ((b - r) / c + 2.0f);
+        else
+            h = 60.0f * ((r - g) / c + 4.0f);
+        const float s = c / mx;
+
+        int i = Recipe::Bands - 1;
+        for (int k = 0; k < Recipe::Bands - 1; ++k) {
+            if (h >= m_centre[k] && h < m_centre[k + 1]) {
+                i = k;
+                break;
+            }
+        }
+        const int j = (i + 1) % Recipe::Bands;
+        const float from = m_centre[i];
+        const float to = j == 0 ? 360.0f : m_centre[j];
+        const float hh = (i == Recipe::Bands - 1 && h < from) ? h + 360.0f : h;
+        float t = (hh - from) / (to - from);
+        t = t * t * (3.0f - 2.0f * t);
+        const float wi = 1.0f - t;
+
+        const float grey = std::min(1.0f, s * 2.0f);
+        float h2 = h + (wi * m_hue[i] + t * m_hue[j]) * grey;
+        h2 = std::fmod(h2 + 360.0f, 360.0f);
+        const float s2 = std::max(0.0f, std::min(1.0f, s * (1.0f + wi * m_sat[i] + t * m_sat[j])));
+        const float v2 = mx;
+
+        const float c2 = v2 * s2;
+        const float x = c2 * (1.0f - std::fabs(std::fmod(h2 / 60.0f, 2.0f) - 1.0f));
+        const float m = v2 - c2;
+        float o[3];
+        switch (int(h2 / 60.0f) % 6) {
+        case 0: o[0] = c2; o[1] = x; o[2] = 0; break;
+        case 1: o[0] = x; o[1] = c2; o[2] = 0; break;
+        case 2: o[0] = 0; o[1] = c2; o[2] = x; break;
+        case 3: o[0] = 0; o[1] = x; o[2] = c2; break;
+        case 4: o[0] = x; o[1] = 0; o[2] = c2; break;
+        default: o[0] = c2; o[1] = 0; o[2] = x; break;
+        }
+        // HSV keeps the brightest channel, so a colour losing saturation
+        // would turn pale. Keep its lightness instead; only the lightness
+        // slider moves it.
+        const float before = 0.2126f * r + 0.7152f * g + 0.0722f * b;
+        const float after = 0.2126f * (o[0] + m) + 0.7152f * (o[1] + m) + 0.0722f * (o[2] + m);
+        const float target = before * (1.0f + (wi * m_lum[i] + t * m_lum[j]) * grey);
+        const float k = after > 1e-5f ? std::max(0.0f, target) / after : 1.0f;
+        for (int n = 0; n < 3; ++n)
+            px[n] = m_gamma.decode((o[n] + m) * k);
+    }
+
+private:
+    bool m_active;
+    float m_hue[Recipe::Bands];
+    float m_sat[Recipe::Bands];
+    float m_lum[Recipe::Bands];
+    float m_centre[Recipe::Bands];
+    Gamma m_gamma;
+};
+
+// Split toning in linear light: each side's colour is scaled to unit
+// luminance, so tinting changes colour but not brightness.
+class Toning
+{
+public:
+    explicit Toning(const Recipe &r)
+        : m_active(r.toneShadowAmount > 0.0 || r.toneHighlightAmount > 0.0)
+        , m_shadowAmount(float(r.toneShadowAmount / 100.0 * 0.8))
+        , m_highlightAmount(float(r.toneHighlightAmount / 100.0 * 0.8))
+        , m_pivot(float(0.5 - 0.35 * r.toneBalance / 100.0))
+    {
+        tint(r.toneShadowHue, m_shadow);
+        tint(r.toneHighlightHue, m_highlight);
+    }
+
+    bool active() const { return m_active; }
+
+    inline void apply(float px[3]) const
+    {
+        const float lum = 0.2126f * px[0] + 0.7152f * px[1] + 0.0722f * px[2];
+        const float p = std::sqrt(std::max(0.0f, std::min(1.0f, lum)));
+        const float t = float(smoothstep(m_pivot - 0.35f, m_pivot + 0.35f, p));
+        const float ws = (1.0f - t) * m_shadowAmount;
+        const float wh = t * m_highlightAmount;
+        for (int k = 0; k < 3; ++k)
+            px[k] *= 1.0f + ws * (m_shadow[k] - 1.0f) + wh * (m_highlight[k] - 1.0f);
+    }
+
+private:
+    static void tint(double hue, float out[3])
+    {
+        const double h = std::fmod(hue, 360.0) / 60.0;
+        const double x = 1.0 - std::fabs(std::fmod(h, 2.0) - 1.0);
+        double rgb[3];
+        switch (int(h) % 6) {
+        case 0: rgb[0] = 1; rgb[1] = x; rgb[2] = 0; break;
+        case 1: rgb[0] = x; rgb[1] = 1; rgb[2] = 0; break;
+        case 2: rgb[0] = 0; rgb[1] = 1; rgb[2] = x; break;
+        case 3: rgb[0] = 0; rgb[1] = x; rgb[2] = 1; break;
+        case 4: rgb[0] = x; rgb[1] = 0; rgb[2] = 1; break;
+        default: rgb[0] = 1; rgb[1] = 0; rgb[2] = x; break;
+        }
+        for (int k = 0; k < 3; ++k)
+            rgb[k] = 0.4 + 0.6 * rgb[k];
+        const double lum = 0.2126 * rgb[0] + 0.7152 * rgb[1] + 0.0722 * rgb[2];
+        for (int k = 0; k < 3; ++k)
+            out[k] = float(rgb[k] / lum);
+    }
+
+    bool m_active;
+    float m_shadowAmount;
+    float m_highlightAmount;
+    float m_pivot;
+    float m_shadow[3];
+    float m_highlight[3];
+};
+
+// Sailfish's background pattern, measured from a screenshot of its Settings:
+// an 8 by 8 tile holding two triangles in staggered rows, brightest at the
+// tip. Values are relative to the brightest point.
+const float PatternTile[8][8] = {
+    {  1.00f, -0.21f, -0.21f, -0.21f, -0.21f, -0.21f, -0.21f, -0.21f },
+    {  0.50f,  0.50f, -0.21f, -0.21f, -0.21f, -0.21f, -0.21f,  0.50f },
+    {  0.14f,  0.14f,  0.14f, -0.21f, -0.21f, -0.21f,  0.14f,  0.14f },
+    { -0.07f, -0.07f, -0.07f, -0.07f, -0.21f, -0.07f, -0.07f, -0.07f },
+    { -0.21f, -0.21f, -0.21f, -0.21f,  1.00f, -0.21f, -0.21f, -0.21f },
+    { -0.21f, -0.21f, -0.21f,  0.50f,  0.50f,  0.50f, -0.21f, -0.21f },
+    { -0.21f, -0.21f,  0.14f,  0.14f,  0.14f,  0.14f,  0.14f, -0.21f },
+    { -0.21f, -0.07f, -0.07f, -0.07f, -0.07f, -0.07f, -0.07f, -0.07f }
+};
+
+inline float patternAt(double tx, double ty)
+{
+    tx -= 0.5;
+    ty -= 0.5;
+    const double fx = std::floor(tx);
+    const double fy = std::floor(ty);
+    const float ax = float(tx - fx);
+    const float ay = float(ty - fy);
+    const int x0 = ((int(fx) % 8) + 8) % 8;
+    const int y0 = ((int(fy) % 8) + 8) % 8;
+    const int x1 = (x0 + 1) % 8;
+    const int y1 = (y0 + 1) % 8;
+    const float top = PatternTile[y0][x0] + (PatternTile[y0][x1] - PatternTile[y0][x0]) * ax;
+    const float bottom = PatternTile[y1][x0] + (PatternTile[y1][x1] - PatternTile[y1][x0]) * ax;
+    return top + (bottom - top) * ay;
+}
+
 }
 
 QSizeF Pipeline::frameSize(int sourceWidth, int sourceHeight, const Recipe &recipe, bool applyCrop)
@@ -244,10 +464,12 @@ QImage Pipeline::render(const ImageBuffer &source, const Recipe &r, bool raw, bo
     const double exposure = std::pow(2.0, r.exposure);
     const double t = r.temperature / 100.0;
     const double m = r.tint / 100.0;
-    const float gain[3] = { float(exposure * std::pow(2.0, 0.5 * t)),
-                            float(exposure * std::pow(2.0, -0.35 * m)),
-                            float(exposure * std::pow(2.0, -0.5 * t)) };
+    const float gain[3] = { float(exposure * std::pow(2.0, 1.0 * t)),
+                            float(exposure * std::pow(2.0, -0.6 * m)),
+                            float(exposure * std::pow(2.0, -1.0 * t)) };
     const ToneCurve tone(r, raw);
+    const Mixer mixer(r);
+    const Toning toning(r);
     const float saturation = float(1.0 + r.saturation / 100.0);
     const float vibrance = float(r.vibrance / 100.0);
     const bool colour = saturation != 1.0f || vibrance != 0.0f;
@@ -281,6 +503,9 @@ QImage Pipeline::render(const ImageBuffer &source, const Recipe &r, bool raw, bo
                         px[k] = px[k] * s + (rest > 0.0f ? rest : 0.0f);
                 }
 
+                if (mixer.active())
+                    mixer.apply(px);
+
                 if (colour) {
                     const float lum = 0.2126f * px[0] + 0.7152f * px[1] + 0.0722f * px[2];
                     const float hi = std::max(px[0], std::max(px[1], px[2]));
@@ -290,6 +515,9 @@ QImage Pipeline::render(const ImageBuffer &source, const Recipe &r, bool raw, bo
                     for (int k = 0; k < 3; ++k)
                         px[k] = lum + (px[k] - lum) * factor;
                 }
+
+                if (toning.active())
+                    toning.apply(px);
 
                 if (vignette != 0.0f) {
                     const double ex = (u - 0.5) * 2.0;
@@ -341,6 +569,26 @@ QImage Pipeline::render(const ImageBuffer &source, const Recipe &r, bool raw, bo
                 const float *s = soft.row(y);
                 for (int i = 0; i < w * 3; ++i)
                     p[i] += sharpenAmount * (p[i] - s[i]);
+            }
+        });
+    }
+
+    if (r.patternAmount > 0.0) {
+        const float amp = float(r.patternAmount / 100.0 * 0.16);
+        const Geometry frame(source.width, source.height, r, applyCrop);
+        const double aspect = (frame.ch * frame.ho) / (frame.cw * frame.wo);
+        const double texels = r.patternSize * 8.0;
+        Imaging::parallelFor(h, [&](int begin, int end) {
+            for (int y = begin; y < end; ++y) {
+                float *p = image.row(y);
+                const double v = v0 + (y + 0.5) * dv;
+                for (int x = 0; x < w; ++x) {
+                    const double u = u0 + (x + 0.5) * du;
+                    const float add = amp * patternAt(u * texels, v * texels * aspect);
+                    p[x * 3] += add;
+                    p[x * 3 + 1] += add;
+                    p[x * 3 + 2] += add;
+                }
             }
         });
     }

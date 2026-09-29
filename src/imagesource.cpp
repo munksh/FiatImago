@@ -1,5 +1,6 @@
 #include "imagesource.h"
 
+#include <QByteArray>
 #include <QFile>
 #include <QImage>
 #include <QImageReader>
@@ -43,12 +44,20 @@ struct Finish
         for (int i = 0; i < 3; ++i)
             gain[i] = float(g[i] / lowest);
 
+        // The camera's own transform for this shot comes first, since it is
+        // what the camera's JPEG was made with; then the DNG path through the
+        // forward matrix; without either, the camera's colours as they are.
         for (int r = 0; r < 3; ++r) {
             for (int c = 0; c < 3; ++c) {
-                double sum = 0.0;
-                for (int k = 0; k < 3; ++k)
-                    sum += XyzD50ToSrgb[r * 3 + k] * meta.forward[k * 3 + c];
-                matrix[r * 3 + c] = float(meta.hasForward ? sum : (r == c ? 1.0 : 0.0));
+                double value = r == c ? 1.0 : 0.0;
+                if (meta.hasCapture) {
+                    value = meta.capture[r * 3 + c];
+                } else if (meta.hasForward) {
+                    value = 0.0;
+                    for (int k = 0; k < 3; ++k)
+                        value += XyzD50ToSrgb[r * 3 + k] * meta.forward[k * 3 + c];
+                }
+                matrix[r * 3 + c] = float(value);
             }
         }
     }

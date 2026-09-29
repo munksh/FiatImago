@@ -1,5 +1,7 @@
 #include "recipe.h"
 
+#include <QByteArray>
+
 #include <algorithm>
 
 namespace {
@@ -16,6 +18,20 @@ double bounded(const QVariantMap &map, const char *key, double fallback, double 
 
 }
 
+const int Recipe::Bands;
+
+const char *Recipe::bandName(int band)
+{
+    static const char *names[Bands] = { "Red", "Orange", "Yellow", "Green", "Aqua", "Blue", "Purple", "Magenta" };
+    return names[band];
+}
+
+const double *Recipe::bandCentres()
+{
+    static const double centres[Bands] = { 0.0, 30.0, 60.0, 120.0, 180.0, 220.0, 275.0, 320.0 };
+    return centres;
+}
+
 QVariantMap Recipe::toMap() const
 {
     QVariantMap m;
@@ -29,6 +45,12 @@ QVariantMap Recipe::toMap() const
     m.insert(QStringLiteral("tint"), tint);
     m.insert(QStringLiteral("saturation"), saturation);
     m.insert(QStringLiteral("vibrance"), vibrance);
+    for (int b = 0; b < Bands; ++b) {
+        const QString name = QLatin1String(bandName(b));
+        m.insert(QStringLiteral("hue") + name, mixHue[b]);
+        m.insert(QStringLiteral("sat") + name, mixSat[b]);
+        m.insert(QStringLiteral("lum") + name, mixLum[b]);
+    }
     m.insert(QStringLiteral("rotation"), rotation);
     m.insert(QStringLiteral("flip"), flip);
     m.insert(QStringLiteral("straighten"), straighten);
@@ -45,6 +67,15 @@ QVariantMap Recipe::toMap() const
     m.insert(QStringLiteral("vignetteMidpoint"), vignetteMidpoint);
     m.insert(QStringLiteral("vignetteFeather"), vignetteFeather);
     m.insert(QStringLiteral("blur"), blur);
+    m.insert(QStringLiteral("toneShadowHue"), toneShadowHue);
+    m.insert(QStringLiteral("toneShadowAmount"), toneShadowAmount);
+    m.insert(QStringLiteral("toneHighlightHue"), toneHighlightHue);
+    m.insert(QStringLiteral("toneHighlightAmount"), toneHighlightAmount);
+    m.insert(QStringLiteral("toneBalance"), toneBalance);
+    m.insert(QStringLiteral("patternAmount"), patternAmount);
+    m.insert(QStringLiteral("patternSize"), patternSize);
+    m.insert(QStringLiteral("look"), look);
+    m.insert(QStringLiteral("lookStrength"), lookStrength);
     return m;
 }
 
@@ -61,6 +92,12 @@ Recipe Recipe::fromMap(const QVariantMap &m)
     r.tint = bounded(m, "tint", r.tint, -100.0, 100.0);
     r.saturation = bounded(m, "saturation", r.saturation, -100.0, 100.0);
     r.vibrance = bounded(m, "vibrance", r.vibrance, -100.0, 100.0);
+    for (int b = 0; b < Bands; ++b) {
+        const QByteArray name(bandName(b));
+        r.mixHue[b] = bounded(m, QByteArray("hue" + name).constData(), 0.0, -90.0, 90.0);
+        r.mixSat[b] = bounded(m, QByteArray("sat" + name).constData(), 0.0, -100.0, 100.0);
+        r.mixLum[b] = bounded(m, QByteArray("lum" + name).constData(), 0.0, -100.0, 100.0);
+    }
     r.rotation = ((int(bounded(m, "rotation", 0.0, -1000.0, 1000.0)) % 4) + 4) % 4;
     r.flip = m.value(QStringLiteral("flip"), false).toBool();
     r.straighten = bounded(m, "straighten", r.straighten, -45.0, 45.0);
@@ -79,6 +116,15 @@ Recipe Recipe::fromMap(const QVariantMap &m)
     r.vignetteMidpoint = bounded(m, "vignetteMidpoint", r.vignetteMidpoint, 0.0, 100.0);
     r.vignetteFeather = bounded(m, "vignetteFeather", r.vignetteFeather, 0.0, 100.0);
     r.blur = bounded(m, "blur", r.blur, 0.0, 100.0);
+    r.toneShadowHue = bounded(m, "toneShadowHue", r.toneShadowHue, 0.0, 360.0);
+    r.toneShadowAmount = bounded(m, "toneShadowAmount", r.toneShadowAmount, 0.0, 100.0);
+    r.toneHighlightHue = bounded(m, "toneHighlightHue", r.toneHighlightHue, 0.0, 360.0);
+    r.toneHighlightAmount = bounded(m, "toneHighlightAmount", r.toneHighlightAmount, 0.0, 100.0);
+    r.toneBalance = bounded(m, "toneBalance", r.toneBalance, -100.0, 100.0);
+    r.patternAmount = bounded(m, "patternAmount", r.patternAmount, 0.0, 100.0);
+    r.patternSize = bounded(m, "patternSize", r.patternSize, 30.0, 150.0);
+    r.look = m.value(QStringLiteral("look")).toString();
+    r.lookStrength = bounded(m, "lookStrength", r.lookStrength, 0.0, 150.0);
     return r;
 }
 
@@ -94,4 +140,29 @@ QStringList Recipe::geometryKeys()
                          << QStringLiteral("perspectiveH") << QStringLiteral("cropX")
                          << QStringLiteral("cropY") << QStringLiteral("cropW")
                          << QStringLiteral("cropH") << QStringLiteral("aspect");
+}
+
+QStringList Recipe::lookKeys()
+{
+    QStringList keys = Recipe().toMap().keys();
+    for (const QString &k : geometryKeys())
+        keys.removeAll(k);
+    keys.removeAll(QStringLiteral("look"));
+    keys.removeAll(QStringLiteral("lookStrength"));
+    return keys;
+}
+
+Recipe Recipe::withLook(const QString &id, const QVariantMap &values, double strength) const
+{
+    const QVariantMap defaults = Recipe().toMap();
+    const double f = std::max(0.0, std::min(150.0, strength)) / 100.0;
+    QVariantMap m = toMap();
+    for (const QString &k : lookKeys()) {
+        const double d = defaults.value(k).toDouble();
+        const double target = values.contains(k) ? values.value(k).toDouble() : d;
+        m.insert(k, d + (target - d) * f);
+    }
+    m.insert(QStringLiteral("look"), id == QLatin1String("builtin:none") ? QString() : id);
+    m.insert(QStringLiteral("lookStrength"), strength);
+    return fromMap(m);
 }

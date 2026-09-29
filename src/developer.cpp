@@ -3,7 +3,10 @@
 #include "exporter.h"
 #include "imagesource.h"
 #include "pipeline.h"
+#include "presetstore.h"
 #include "recipestore.h"
+
+#include <QByteArray>
 
 #include <algorithm>
 
@@ -41,10 +44,12 @@ void DevelopWorker::load(const QVariantMap &source)
                                  source.value(QStringLiteral("altJson")).toString(),
                                  true, m_preview, &meta, &error)) {
             m_raw = true;
-            if (!jpeg.isEmpty())
-                m_turns = ImageSource::matchRotation(m_preview, jpeg);
-            else if (meta.orientation > 0)
+            // An orientation the camera wrote down beats a guess from the
+            // JPEG, which may itself be lying on its side.
+            if (meta.orientation >= 0)
                 m_turns = meta.orientation / 90;
+            else if (!jpeg.isEmpty())
+                m_turns = ImageSource::matchRotation(m_preview, jpeg);
             m_preview = Imaging::rotated(m_preview, m_turns);
             if (!jpeg.isEmpty())
                 m_gain = ImageSource::matchBrightness(m_preview, jpeg);
@@ -264,6 +269,22 @@ void Developer::pasteSettings()
     for (auto it = s_clipboard.constBegin(); it != s_clipboard.constEnd(); ++it)
         map.insert(it.key(), it.value());
     apply(Recipe::fromMap(map));
+}
+
+void Developer::applyLook(const QString &id, double strength)
+{
+    PresetStore *store = PresetStore::instance();
+    const QVariantMap values = store ? store->values(id) : QVariantMap();
+    apply(m_recipe.withLook(id, values, strength));
+}
+
+QVariantMap Developer::lookSettings() const
+{
+    const QVariantMap all = m_recipe.toMap();
+    QVariantMap look;
+    for (const QString &key : Recipe::lookKeys())
+        look.insert(key, all.value(key));
+    return look;
 }
 
 void Developer::inspect(double u, double v, int width, int height)

@@ -7,6 +7,6 @@ Exec=harbour-fiatimago
 Name=fiat imago
 
 [X-Sailjail]
-Permissions=Pictures
+Permissions=Pictures;RemovableMedia
 OrganizationName=se.munkstolen
 ApplicationName=harbour-fiatimago

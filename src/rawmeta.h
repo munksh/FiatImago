@@ -17,6 +17,8 @@ struct RawMeta
     bool hasNeutral = false;
     double forward[9] = { 1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0 };
     bool hasForward = false;
+    double capture[9] = { 1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0 };
+    bool hasCapture = false;
     int orientation = -1;
 
     bool isValid() const;

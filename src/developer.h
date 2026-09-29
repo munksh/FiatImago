@@ -94,6 +94,8 @@ public:
     Q_INVOKABLE void resetAll();
     Q_INVOKABLE void copySettings();
     Q_INVOKABLE void pasteSettings();
+    Q_INVOKABLE void applyLook(const QString &id, double strength);
+    Q_INVOKABLE QVariantMap lookSettings() const;
     Q_INVOKABLE void inspect(double u, double v, int width, int height);
     Q_INVOKABLE void exportImage(bool half, int quality, bool keepCameraData);
     Q_INVOKABLE void save();

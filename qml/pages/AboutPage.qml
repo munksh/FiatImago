@@ -64,7 +64,7 @@ Page {
                 wrapMode: Text.WordWrap
                 font.pixelSize: Theme.fontSizeExtraSmall
                 color: FiatImagoTheme.secondaryText
-                text: qsTr("The developing follows published methods: Malvar–He–Cutler demosaicing, and the DNG colour path through the camera's own forward matrix. The code was written with AI assistance and checked against test images with a known answer.")
+                text: qsTr("The developing follows published methods: Malvar–He–Cutler demosaicing, and colour through the transform the camera itself recorded for each shot. The code was written with AI assistance and checked against test images with a known answer.")
             }
 
             Label {
@@ -145,7 +145,7 @@ Page {
                 wrapMode: Text.WordWrap
                 font.pixelSize: Theme.fontSizeExtraSmall
                 color: FiatImagoTheme.secondaryText
-                text: qsTr("Photos are read from Pictures and Pictures/Camera and never changed. Your edits are kept in the app's own storage, not in the photos. Exports are saved to Pictures/fiat imago. Nothing leaves the phone: no account, no network.")
+                text: qsTr("Photos are read from Pictures, Pictures/Camera and Pictures/RAWfish, and from a memory card, and never changed. Your edits are kept in the app's own storage, not in the photos. Exports are saved to Pictures/fiat imago. Nothing leaves the phone: no account, no network.")
             }
             Label {
                 x: Theme.horizontalPageMargin
@@ -153,7 +153,7 @@ Page {
                 wrapMode: Text.WordWrap
                 font.pixelSize: Theme.fontSizeExtraSmall
                 color: FiatImagoTheme.secondaryText
-                text: qsTr("Permission: Pictures, to read your photos and save the exports.")
+                text: qsTr("Permissions: Pictures, to read your photos and save the exports, and removable media, to read a memory card.")
             }
 
             SectionLabel { x: Theme.horizontalPageMargin; text: qsTr("Made by") }

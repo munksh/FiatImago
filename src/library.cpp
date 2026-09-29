@@ -2,10 +2,13 @@
 
 #include "recipestore.h"
 
+#include <QByteArray>
 #include <QDir>
 #include <QFileInfo>
 #include <QMap>
 #include <QStandardPaths>
+#include <QStorageInfo>
+#include <QStringList>
 #include <QUrl>
 
 #include <algorithm>
@@ -93,10 +96,23 @@ void Library::setFilter(const QString &filter)
 void Library::refresh()
 {
     const QString pictures = QStandardPaths::writableLocation(QStandardPaths::PicturesLocation);
-    const QStringList dirs = QStringList()
+    QStringList dirs = QStringList()
             << pictures
             << pictures + QStringLiteral("/Camera")
             << pictures + QStringLiteral("/RAWfish");
+
+    // Memory cards are mounted under /run/media/<user>/<card>.
+    const QList<QStorageInfo> volumes = QStorageInfo::mountedVolumes();
+    for (const QStorageInfo &volume : volumes) {
+        const QString root = volume.rootPath();
+        if (!volume.isValid() || !volume.isReady() || !root.startsWith(QLatin1String("/run/media/")))
+            continue;
+        dirs << root + QStringLiteral("/Pictures")
+             << root + QStringLiteral("/Pictures/Camera")
+             << root + QStringLiteral("/Pictures/RAWfish")
+             << root + QStringLiteral("/DCIM")
+             << root + QStringLiteral("/DCIM/Camera");
+    }
 
     struct Suffix { const char *text; int kind; };
     static const Suffix suffixes[] = {

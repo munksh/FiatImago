@@ -18,6 +18,9 @@ Page {
 
     property string tool: "light"
     property bool holding: false
+    property string colourView: "basic"
+    property string effectsView: "vignette"
+    property string mixBand: "Green"
     property real loupeU: 0.5
     property real loupeV: 0.5
     readonly property int loupeSize: Math.round(Math.min(stage.width, stage.height) * 0.45)
@@ -27,6 +30,27 @@ Page {
     }
 
     onToolChanged: if (tool === "detail") showLoupe()
+
+    function resetMixer() {
+        var bands = ["Red", "Orange", "Yellow", "Green", "Aqua", "Blue", "Purple", "Magenta"]
+        for (var i = 0; i < bands.length; ++i) {
+            dev.set("hue" + bands[i], 0)
+            dev.set("sat" + bands[i], 0)
+            dev.set("lum" + bands[i], 0)
+        }
+    }
+
+    function currentLook() {
+        var id = dev.recipe.look
+        return (id === undefined || id === "") ? "builtin:none" : id
+    }
+
+    function deleteLook(id, name) {
+        remorse.execute(qsTr("Deleting %1").arg(name), function() {
+            if (dev.recipe.look === id) dev.set("look", "")
+            imagoPresets.remove(id)
+        })
+    }
 
     allowedOrientations: Orientation.Portrait
 
@@ -89,6 +113,8 @@ Page {
         color: FiatImagoTheme.paper
     }
 
+    RemorsePopup { id: remorse }
+
     SilicaFlickable {
         anchors.fill: parent
         contentHeight: Math.max(page.height, column.height)
@@ -111,6 +137,15 @@ Page {
                 text: qsTr("Paste settings")
                 color: FiatImagoTheme.primaryText
                 onClicked: dev.pasteSettings()
+            }
+            MenuItem {
+                enabled: dev.loaded
+                text: qsTr("Save look")
+                color: FiatImagoTheme.primaryText
+                onClicked: pageStack.push(Qt.resolvedUrl("SaveLookPage.qml"), {
+                    developer: dev,
+                    name: page.shortName
+                })
             }
             MenuItem {
                 enabled: dev.loaded
@@ -284,6 +319,7 @@ Page {
                 x: Theme.horizontalPageMargin
                 width: parent.width - 2 * Theme.horizontalPageMargin
                 choices: [
+                    { label: qsTr("looks"), value: "looks" },
                     { label: qsTr("light"), value: "light" },
                     { label: qsTr("colour"), value: "colour" },
                     { label: qsTr("crop"), value: "crop" },
@@ -295,6 +331,99 @@ Page {
             }
 
             Item { width: 1; height: Theme.paddingMedium }
+
+            Column {
+                width: parent.width
+                visible: page.tool === "looks"
+                spacing: Theme.paddingSmall
+
+                SectionLabel {
+                    x: Theme.horizontalPageMargin
+                    width: parent.width - 2 * Theme.horizontalPageMargin
+                    horizontalAlignment: Text.AlignRight
+                    text: qsTr("Built in")
+                }
+                LookGrid {
+                    x: Theme.horizontalPageMargin
+                    width: parent.width - 2 * Theme.horizontalPageMargin
+                    choices: imagoPresets.builtIn
+                    current: page.currentLook()
+                    onChosen: dev.applyLook(value, 100)
+                }
+
+                AdjustSlider {
+                    visible: page.currentLook() !== "builtin:none"
+                    label: qsTr("Strength")
+                    minimumValue: 0
+                    maximumValue: 150
+                    defaultValue: 100
+                    signedValue: false
+                    unit: "%"
+                    value: dev.recipe.lookStrength === undefined ? 100 : dev.recipe.lookStrength
+                    onMoved: dev.applyLook(page.currentLook(), newValue)
+                }
+                Label {
+                    x: Theme.horizontalPageMargin
+                    width: parent.width - 2 * Theme.horizontalPageMargin
+                    visible: page.currentLook() !== "builtin:none"
+                    wrapMode: Text.WordWrap
+                    text: qsTr("Moving the strength starts again from the look, so set it before fine-tuning.")
+                    color: FiatImagoTheme.secondaryText
+                    font.pixelSize: Theme.fontSizeExtraSmall
+                }
+
+                Item { width: 1; height: Theme.paddingMedium }
+
+                SectionLabel {
+                    x: Theme.horizontalPageMargin
+                    width: parent.width - 2 * Theme.horizontalPageMargin
+                    horizontalAlignment: Text.AlignRight
+                    text: qsTr("Yours")
+                }
+
+                Repeater {
+                    model: imagoPresets.user
+
+                    ListItem {
+                        id: userLook
+                        readonly property string lookId: modelData.id
+                        readonly property string lookName: modelData.name
+
+                        width: parent.width
+                        contentHeight: Theme.itemSizeSmall
+                        highlightedColor: FiatImagoTheme.highlightWash
+                        onClicked: dev.applyLook(lookId, 100)
+
+                        Label {
+                            x: Theme.horizontalPageMargin
+                            width: parent.width - 2 * Theme.horizontalPageMargin
+                            anchors.verticalCenter: parent.verticalCenter
+                            truncationMode: TruncationMode.Fade
+                            text: userLook.lookName
+                            color: FiatImagoTheme.primaryText
+                            font.pixelSize: Theme.fontSizeSmall
+                            font.bold: page.currentLook() === userLook.lookId
+                        }
+
+                        menu: ContextMenu {
+                            MenuItem {
+                                text: qsTr("Delete")
+                                onClicked: page.deleteLook(userLook.lookId, userLook.lookName)
+                            }
+                        }
+                    }
+                }
+
+                Label {
+                    x: Theme.horizontalPageMargin
+                    width: parent.width - 2 * Theme.horizontalPageMargin
+                    visible: imagoPresets.user.length === 0
+                    wrapMode: Text.WordWrap
+                    text: qsTr("Nothing saved yet. Save the settings of a photo you like with Save look in the pull-down menu.")
+                    color: FiatImagoTheme.secondaryText
+                    font.pixelSize: Theme.fontSizeExtraSmall
+                }
+            }
 
             Column {
                 width: parent.width
@@ -348,25 +477,89 @@ Page {
                 width: parent.width
                 visible: page.tool === "colour"
 
-                AdjustSlider {
-                    label: qsTr("Temperature")
-                    value: page.value("temperature")
-                    onMoved: dev.set("temperature", newValue)
+                WordChoice {
+                    x: Theme.horizontalPageMargin
+                    width: parent.width - 2 * Theme.horizontalPageMargin
+                    choices: [
+                        { label: qsTr("basic"), value: "basic" },
+                        { label: qsTr("mixer"), value: "mixer" }
+                    ]
+                    current: page.colourView
+                    onChosen: page.colourView = value
                 }
-                AdjustSlider {
-                    label: qsTr("Tint")
-                    value: page.value("tint")
-                    onMoved: dev.set("tint", newValue)
+
+                Column {
+                    width: parent.width
+                    visible: page.colourView === "basic"
+
+                    AdjustSlider {
+                        label: qsTr("Temperature")
+                        value: page.value("temperature")
+                        onMoved: dev.set("temperature", newValue)
+                    }
+                    AdjustSlider {
+                        label: qsTr("Tint")
+                        value: page.value("tint")
+                        onMoved: dev.set("tint", newValue)
+                    }
+                    AdjustSlider {
+                        label: qsTr("Saturation")
+                        value: page.value("saturation")
+                        onMoved: dev.set("saturation", newValue)
+                    }
+                    AdjustSlider {
+                        label: qsTr("Vibrance")
+                        value: page.value("vibrance")
+                        onMoved: dev.set("vibrance", newValue)
+                    }
                 }
-                AdjustSlider {
-                    label: qsTr("Saturation")
-                    value: page.value("saturation")
-                    onMoved: dev.set("saturation", newValue)
-                }
-                AdjustSlider {
-                    label: qsTr("Vibrance")
-                    value: page.value("vibrance")
-                    onMoved: dev.set("vibrance", newValue)
+
+                Column {
+                    width: parent.width
+                    visible: page.colourView === "mixer"
+
+                    WordChoice {
+                        x: Theme.horizontalPageMargin
+                        width: parent.width - 2 * Theme.horizontalPageMargin
+                        choices: [
+                            { label: qsTr("red"), value: "Red" },
+                            { label: qsTr("orange"), value: "Orange" },
+                            { label: qsTr("yellow"), value: "Yellow" },
+                            { label: qsTr("green"), value: "Green" },
+                            { label: qsTr("aqua"), value: "Aqua" },
+                            { label: qsTr("blue"), value: "Blue" },
+                            { label: qsTr("purple"), value: "Purple" },
+                            { label: qsTr("magenta"), value: "Magenta" }
+                        ]
+                        current: page.mixBand
+                        onChosen: page.mixBand = value
+                    }
+
+                    AdjustSlider {
+                        label: qsTr("Hue")
+                        minimumValue: -90
+                        maximumValue: 90
+                        unit: "°"
+                        value: page.value("hue" + page.mixBand)
+                        onMoved: dev.set("hue" + page.mixBand, newValue)
+                    }
+                    AdjustSlider {
+                        label: qsTr("Saturation")
+                        value: page.value("sat" + page.mixBand)
+                        onMoved: dev.set("sat" + page.mixBand, newValue)
+                    }
+                    AdjustSlider {
+                        label: qsTr("Lightness")
+                        value: page.value("lum" + page.mixBand)
+                        onMoved: dev.set("lum" + page.mixBand, newValue)
+                    }
+
+                    LinkText {
+                        x: Theme.horizontalPageMargin - Theme.paddingSmall
+                        text: qsTr("reset mixer")
+                        color: FiatImagoTheme.primaryText
+                        onClicked: page.resetMixer()
+                    }
                 }
             }
 
@@ -475,36 +668,144 @@ Page {
                 width: parent.width
                 visible: page.tool === "effects"
 
-                AdjustSlider {
-                    label: qsTr("Vignette")
-                    value: page.value("vignetteAmount")
-                    onMoved: dev.set("vignetteAmount", newValue)
+                WordChoice {
+                    x: Theme.horizontalPageMargin
+                    width: parent.width - 2 * Theme.horizontalPageMargin
+                    choices: [
+                        { label: qsTr("vignette"), value: "vignette" },
+                        { label: qsTr("toning"), value: "toning" },
+                        { label: qsTr("pattern"), value: "pattern" },
+                        { label: qsTr("blur"), value: "blur" }
+                    ]
+                    current: page.effectsView
+                    onChosen: page.effectsView = value
                 }
-                AdjustSlider {
-                    label: qsTr("Midpoint")
-                    minimumValue: 0
-                    maximumValue: 100
-                    defaultValue: 50
-                    signedValue: false
-                    value: dev.recipe.vignetteMidpoint === undefined ? 50 : dev.recipe.vignetteMidpoint
-                    onMoved: dev.set("vignetteMidpoint", newValue)
+
+                Column {
+                    width: parent.width
+                    visible: page.effectsView === "vignette"
+
+                    AdjustSlider {
+                        label: qsTr("Vignette")
+                        value: page.value("vignetteAmount")
+                        onMoved: dev.set("vignetteAmount", newValue)
+                    }
+                    AdjustSlider {
+                        label: qsTr("Midpoint")
+                        minimumValue: 0
+                        maximumValue: 100
+                        defaultValue: 50
+                        signedValue: false
+                        value: dev.recipe.vignetteMidpoint === undefined ? 50 : dev.recipe.vignetteMidpoint
+                        onMoved: dev.set("vignetteMidpoint", newValue)
+                    }
+                    AdjustSlider {
+                        label: qsTr("Feather")
+                        minimumValue: 0
+                        maximumValue: 100
+                        defaultValue: 50
+                        signedValue: false
+                        value: dev.recipe.vignetteFeather === undefined ? 50 : dev.recipe.vignetteFeather
+                        onMoved: dev.set("vignetteFeather", newValue)
+                    }
                 }
-                AdjustSlider {
-                    label: qsTr("Feather")
-                    minimumValue: 0
-                    maximumValue: 100
-                    defaultValue: 50
-                    signedValue: false
-                    value: dev.recipe.vignetteFeather === undefined ? 50 : dev.recipe.vignetteFeather
-                    onMoved: dev.set("vignetteFeather", newValue)
+
+                Column {
+                    width: parent.width
+                    visible: page.effectsView === "toning"
+
+                    AdjustSlider {
+                        label: qsTr("Shadows hue")
+                        minimumValue: 0
+                        maximumValue: 360
+                        signedValue: false
+                        unit: "°"
+                        value: page.value("toneShadowHue")
+                        onMoved: dev.set("toneShadowHue", newValue)
+                    }
+                    AdjustSlider {
+                        label: qsTr("Shadows strength")
+                        minimumValue: 0
+                        maximumValue: 100
+                        signedValue: false
+                        value: page.value("toneShadowAmount")
+                        onMoved: dev.set("toneShadowAmount", newValue)
+                    }
+                    AdjustSlider {
+                        label: qsTr("Highlights hue")
+                        minimumValue: 0
+                        maximumValue: 360
+                        signedValue: false
+                        unit: "°"
+                        value: page.value("toneHighlightHue")
+                        onMoved: dev.set("toneHighlightHue", newValue)
+                    }
+                    AdjustSlider {
+                        label: qsTr("Highlights strength")
+                        minimumValue: 0
+                        maximumValue: 100
+                        signedValue: false
+                        value: page.value("toneHighlightAmount")
+                        onMoved: dev.set("toneHighlightAmount", newValue)
+                    }
+                    AdjustSlider {
+                        label: qsTr("Balance")
+                        value: page.value("toneBalance")
+                        onMoved: dev.set("toneBalance", newValue)
+                    }
+                    Label {
+                        x: Theme.horizontalPageMargin
+                        width: parent.width - 2 * Theme.horizontalPageMargin
+                        wrapMode: Text.WordWrap
+                        text: qsTr("For sepia, take the saturation down first, then warm both sides.")
+                        color: FiatImagoTheme.secondaryText
+                        font.pixelSize: Theme.fontSizeExtraSmall
+                    }
                 }
-                AdjustSlider {
-                    label: qsTr("Blur")
-                    minimumValue: 0
-                    maximumValue: 100
-                    signedValue: false
-                    value: page.value("blur")
-                    onMoved: dev.set("blur", newValue)
+
+                Column {
+                    width: parent.width
+                    visible: page.effectsView === "pattern"
+
+                    AdjustSlider {
+                        label: qsTr("Pattern")
+                        minimumValue: 0
+                        maximumValue: 100
+                        signedValue: false
+                        value: page.value("patternAmount")
+                        onMoved: dev.set("patternAmount", newValue)
+                    }
+                    AdjustSlider {
+                        label: qsTr("Size")
+                        minimumValue: 30
+                        maximumValue: 150
+                        defaultValue: 80
+                        signedValue: false
+                        value: dev.recipe.patternSize === undefined ? 80 : dev.recipe.patternSize
+                        onMoved: dev.set("patternSize", newValue)
+                    }
+                    Label {
+                        x: Theme.horizontalPageMargin
+                        width: parent.width - 2 * Theme.horizontalPageMargin
+                        wrapMode: Text.WordWrap
+                        text: qsTr("The triangles Sailfish draws on its own backgrounds. Size is how many fit across the photo.")
+                        color: FiatImagoTheme.secondaryText
+                        font.pixelSize: Theme.fontSizeExtraSmall
+                    }
+                }
+
+                Column {
+                    width: parent.width
+                    visible: page.effectsView === "blur"
+
+                    AdjustSlider {
+                        label: qsTr("Blur")
+                        minimumValue: 0
+                        maximumValue: 100
+                        signedValue: false
+                        value: page.value("blur")
+                        onMoved: dev.set("blur", newValue)
+                    }
                 }
             }
 

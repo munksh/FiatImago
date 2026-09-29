@@ -4,6 +4,7 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QStringList>
 #include <QVector>
 
 #include <algorithm>
@@ -245,6 +246,15 @@ bool readRawMeta(const QString &rawPath, const QString &primaryJson,
         for (int i = 0; i < 9; ++i)
             meta.forward[i] = forward.at(i);
         meta.hasForward = true;
+    }
+
+    // The colour transform the camera's own processor used for this shot:
+    // white-balanced camera RGB straight to linear sRGB.
+    const QVector<double> capture = numbers(s.value(QStringLiteral("capture_color_transform")), 9);
+    if (capture.size() == 9 && !allZero(capture)) {
+        for (int i = 0; i < 9; ++i)
+            meta.capture[i] = capture.at(i);
+        meta.hasCapture = true;
     }
 
     const QStringList orientationKeys = { QStringLiteral("orientation"),
