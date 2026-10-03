@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.0 — 2026-10-03
+
+First release: 0.5 after use. RAW16 from RAWfish is tested on real files;
+RAW8, RAW10 and RAW12 only on synthetic ones.
+
+- The fiat family list in About now includes fiat ratio, links fiat lux, and
+  has corrected links for fiat glossa and fiat cor.
+
 ## 0.5 — 2026-09-29
 
 Pre-release.
