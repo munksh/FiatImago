@@ -113,8 +113,8 @@ void DevelopWorker::inspect(const QVariantMap &recipe, double u, double v, int w
     }
     const Recipe r = Recipe::fromMap(recipe);
     const QSizeF frame = Pipeline::frameSize(m_full.width, m_full.height, r, true);
-    const double ww = std::min(1.0, width / frame.width());
-    const double wh = std::min(1.0, height / frame.height());
+    const double ww = std::min<double>(1.0, width / frame.width());
+    const double wh = std::min<double>(1.0, height / frame.height());
     const double x = std::max(0.0, std::min(1.0 - ww, u - ww / 2.0));
     const double y = std::max(0.0, std::min(1.0 - wh, v - wh / 2.0));
     const QSize size(std::max(1, int(ww * frame.width())), std::max(1, int(wh * frame.height())));
