@@ -84,6 +84,16 @@ REQUIRED_FILES = \
     qml/components/LinkText.qml \
     qml/components/FiatButton.qml \
     qml/pages/images/family/harbour-fiatimago.png \
+    qml/pages/images/family/harbour-fiatagenda.png \
+    qml/pages/images/family/harbour-fiatcor.png \
+    qml/pages/images/family/harbour-fiatglossa.png \
+    qml/pages/images/family/harbour-fiatlux.png \
+    qml/pages/images/family/harbour-fiatmargo.png \
+    qml/pages/images/family/harbour-fiatmos.png \
+    qml/pages/images/family/harbour-fiatpons.png \
+    qml/pages/images/family/harbour-fiatpassus.png \
+    qml/pages/images/family/harbour-fiatratio.png \
+    qml/pages/images/family/harbour-fiatvox.png \
     LICENSE
 
 for(f, REQUIRED_FILES) {

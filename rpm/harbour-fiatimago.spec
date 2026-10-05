@@ -17,6 +17,28 @@ fiat imago develops the RAW files RAWfish saves, and ordinary JPEG photos:
 light, colour, crop, sharpness and vignette, previewed live. The original is
 never changed; every export is a new JPEG.
 
+%if 0%{?_chum}
+Title: Fiat Imago
+Type: desktop-application
+DeveloperName: Munkstolen
+Categories:
+ - Graphics
+ - Photography
+PackageIcon: https://munkstolen.se/SFOS/harbour-fiatimago.png
+Screenshots:
+ - https://munkstolen.se/SFOS/fiatimago1.png
+ - https://munkstolen.se/SFOS/fiatimago2.png
+ - https://munkstolen.se/SFOS/fiatimago3.png
+ - https://munkstolen.se/SFOS/fiatimago4.png
+ - https://munkstolen.se/SFOS/fiatimago5.png
+ - https://munkstolen.se/SFOS/fiatimago6.png
+Custom:
+  Repo: https://github.com/munksh/FiatImago
+Links:
+  Homepage: https://github.com/munksh/FiatImago
+  Bugtracker: https://github.com/munksh/FiatImago/issues
+%endif
+
 %prep
 %setup -q -n %{name}-%{version}
 
