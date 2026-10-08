@@ -101,5 +101,5 @@ for(f, REQUIRED_FILES) {
 }
 
 licensefile.files = $$PWD/LICENSE
-licensefile.path = /usr/share/licenses/$${TARGET}
+licensefile.path = /usr/share/$${TARGET}
 INSTALLS += licensefile
