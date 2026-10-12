@@ -145,7 +145,7 @@ Page {
                 wrapMode: Text.WordWrap
                 font.pixelSize: Theme.fontSizeExtraSmall
                 color: FiatImagoTheme.secondaryText
-                text: qsTr("Photos are read from Pictures, Pictures/Camera and Pictures/RAWfish, and from a memory card, and never changed. Your edits are kept in the app's own storage, not in the photos. Exports are saved to Pictures/fiat imago. Nothing leaves the phone: no account, no network.")
+                text: qsTr("Photos are read from Pictures and every folder in it, from the folders Android apps save to, and from a memory card, and never changed. Your edits are kept in the app's own storage, not in the photos. Exports are saved to Pictures/fiat imago. Nothing leaves the phone: no account, no network.")
             }
             Label {
                 x: Theme.horizontalPageMargin

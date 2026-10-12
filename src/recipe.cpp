@@ -67,6 +67,7 @@ QVariantMap Recipe::toMap() const
     m.insert(QStringLiteral("vignetteMidpoint"), vignetteMidpoint);
     m.insert(QStringLiteral("vignetteFeather"), vignetteFeather);
     m.insert(QStringLiteral("blur"), blur);
+    m.insert(QStringLiteral("noiseChroma"), noiseChroma);
     m.insert(QStringLiteral("toneShadowHue"), toneShadowHue);
     m.insert(QStringLiteral("toneShadowAmount"), toneShadowAmount);
     m.insert(QStringLiteral("toneHighlightHue"), toneHighlightHue);
@@ -116,6 +117,7 @@ Recipe Recipe::fromMap(const QVariantMap &m)
     r.vignetteMidpoint = bounded(m, "vignetteMidpoint", r.vignetteMidpoint, 0.0, 100.0);
     r.vignetteFeather = bounded(m, "vignetteFeather", r.vignetteFeather, 0.0, 100.0);
     r.blur = bounded(m, "blur", r.blur, 0.0, 100.0);
+    r.noiseChroma = bounded(m, "noiseChroma", r.noiseChroma, 0.0, 100.0);
     r.toneShadowHue = bounded(m, "toneShadowHue", r.toneShadowHue, 0.0, 360.0);
     r.toneShadowAmount = bounded(m, "toneShadowAmount", r.toneShadowAmount, 0.0, 100.0);
     r.toneHighlightHue = bounded(m, "toneHighlightHue", r.toneHighlightHue, 0.0, 360.0);
@@ -149,6 +151,8 @@ QStringList Recipe::lookKeys()
         keys.removeAll(k);
     keys.removeAll(QStringLiteral("look"));
     keys.removeAll(QStringLiteral("lookStrength"));
+    // Noise belongs to the photo, not to a look: choosing a look keeps it.
+    keys.removeAll(QStringLiteral("noiseChroma"));
     return keys;
 }
 

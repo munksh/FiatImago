@@ -40,6 +40,10 @@ Page {
         }
     }
 
+    function kind() {
+        return /\.png$/i.test(jpegPath) ? "png" : "jpeg"
+    }
+
     function currentLook() {
         var id = dev.recipe.look
         return (id === undefined || id === "") ? "builtin:none" : id
@@ -154,7 +158,7 @@ Page {
                 onClicked: pageStack.push(Qt.resolvedUrl("ExportPage.qml"), {
                     developer: dev,
                     name: page.shortName,
-                    hasCameraData: page.jpegPath !== ""
+                    hasCameraData: page.kind() === "jpeg"
                 })
             }
         }
@@ -165,7 +169,7 @@ Page {
 
             PageHead {
                 title: page.shortName
-                subtitle: dev.loaded ? (dev.isRaw ? "raw" : "jpeg") : ""
+                subtitle: dev.loaded ? (dev.isRaw ? "raw" : page.kind()) : ""
             }
 
             Item {
@@ -653,6 +657,14 @@ Page {
                     signedValue: false
                     value: dev.recipe.sharpenRadius === undefined ? 1 : dev.recipe.sharpenRadius
                     onMoved: dev.set("sharpenRadius", newValue)
+                }
+                AdjustSlider {
+                    label: qsTr("Colour noise")
+                    minimumValue: 0
+                    maximumValue: 100
+                    signedValue: false
+                    value: page.value("noiseChroma")
+                    onMoved: dev.set("noiseChroma", newValue)
                 }
                 Label {
                     x: Theme.horizontalPageMargin

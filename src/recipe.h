@@ -39,6 +39,9 @@ struct Recipe
     double cropH = 1.0;
     QString aspect = QStringLiteral("original");
 
+    // Smooths colour speckle while leaving lightness, and so detail, alone.
+    double noiseChroma = 0.0;
+
     double sharpenAmount = 0.0;
     double sharpenRadius = 1.0;
 

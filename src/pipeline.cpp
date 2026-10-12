@@ -445,13 +445,15 @@ QImage Pipeline::render(const ImageBuffer &source, const Recipe &r, bool raw, bo
     const double frameWidth = size.width() / window.width();
     const double blurSigma = r.blur > 0.0 ? r.blur / 100.0 * 0.012 * frameWidth : 0.0;
     const double sharpenSigma = std::max(0.4, r.sharpenRadius / 1000.0 * frameWidth);
+    const double noiseSigma = r.noiseChroma > 0.0 ? r.noiseChroma / 100.0 * 0.0016 * frameWidth : 0.0;
     const float sharpenAmount = float(r.sharpenAmount / 100.0 * 1.5);
 
     const bool whole = window.x() <= 0.0 && window.y() <= 0.0
             && window.right() >= 1.0 && window.bottom() >= 1.0;
     int pad = 0;
     if (!whole) {
-        const double reach = std::max(blurSigma, sharpenAmount > 0.0f ? sharpenSigma : 0.0);
+        const double reach = std::max(std::max(blurSigma, noiseSigma),
+                                      sharpenAmount > 0.0f ? sharpenSigma : 0.0);
         pad = int(std::ceil(3.0 * reach)) + 1;
     }
     const int w = size.width() + 2 * pad;
@@ -535,6 +537,46 @@ QImage Pipeline::render(const ImageBuffer &source, const Recipe &r, bool raw, bo
             }
         }
     });
+
+    // Colour noise: split each pixel into lightness and the colour around it,
+    // in a gamma-like space where the eye judges speckle, smooth only the
+    // colour and put the two back together.
+    if (noiseSigma > 0.3) {
+        ImageBuffer colour;
+        colour.resize(w, h);
+        std::vector<float> light(static_cast<size_t>(w) * h);
+        Imaging::parallelFor(h, [&](int begin, int end) {
+            for (int y = begin; y < end; ++y) {
+                const float *p = image.row(y);
+                float *c = colour.row(y);
+                float *l = light.data() + static_cast<size_t>(y) * w;
+                for (int x = 0; x < w; ++x) {
+                    const float q0 = std::sqrt(p[x * 3]);
+                    const float q1 = std::sqrt(p[x * 3 + 1]);
+                    const float q2 = std::sqrt(p[x * 3 + 2]);
+                    const float lum = 0.2126f * q0 + 0.7152f * q1 + 0.0722f * q2;
+                    l[x] = lum;
+                    c[x * 3] = q0 - lum;
+                    c[x * 3 + 1] = q1 - lum;
+                    c[x * 3 + 2] = q2 - lum;
+                }
+            }
+        });
+        Imaging::gaussianBlur(colour, noiseSigma);
+        Imaging::parallelFor(h, [&](int begin, int end) {
+            for (int y = begin; y < end; ++y) {
+                float *p = image.row(y);
+                const float *c = colour.row(y);
+                const float *l = light.data() + static_cast<size_t>(y) * w;
+                for (int x = 0; x < w; ++x) {
+                    for (int k = 0; k < 3; ++k) {
+                        const float q = std::max(0.0f, l[x] + c[x * 3 + k]);
+                        p[x * 3 + k] = q * q;
+                    }
+                }
+            }
+        });
+    }
 
     if (blurSigma > 0.3)
         Imaging::gaussianBlur(image, blurSigma);

@@ -15,6 +15,23 @@
 
 namespace {
 
+const int MaxDepth = 4;
+
+void collectFolders(const QString &path, const QString &skip, int depth, QStringList &out)
+{
+    const QDir dir(path);
+    if (!dir.exists() || dir.absolutePath() == skip)
+        return;
+    out << dir.absolutePath();
+    if (depth >= MaxDepth)
+        return;
+    const QStringList children = dir.entryList(QDir::Dirs | QDir::NoDotAndDotDot | QDir::NoSymLinks, QDir::Name);
+    for (const QString &child : children) {
+        if (!child.startsWith(QLatin1Char('.')))
+            collectFolders(dir.absoluteFilePath(child), skip, depth + 1, out);
+    }
+}
+
 struct Found {
     QString jpeg;
     QString raw;
@@ -95,31 +112,35 @@ void Library::setFilter(const QString &filter)
 
 void Library::refresh()
 {
+    // Every folder under these roots is searched, so photos other apps save
+    // in folders of their own are found too: Pictures, Android's DCIM and
+    // Pictures, and the same on a memory card (mounted under /run/media).
     const QString pictures = QStandardPaths::writableLocation(QStandardPaths::PicturesLocation);
-    QStringList dirs = QStringList()
+    const QString android = QDir::homePath() + QStringLiteral("/android_storage");
+    QStringList roots = QStringList()
             << pictures
-            << pictures + QStringLiteral("/Camera")
-            << pictures + QStringLiteral("/RAWfish");
-
-    // Memory cards are mounted under /run/media/<user>/<card>.
+            << android + QStringLiteral("/DCIM")
+            << android + QStringLiteral("/Pictures");
     const QList<QStorageInfo> volumes = QStorageInfo::mountedVolumes();
     for (const QStorageInfo &volume : volumes) {
         const QString root = volume.rootPath();
         if (!volume.isValid() || !volume.isReady() || !root.startsWith(QLatin1String("/run/media/")))
             continue;
-        dirs << root + QStringLiteral("/Pictures")
-             << root + QStringLiteral("/Pictures/Camera")
-             << root + QStringLiteral("/Pictures/RAWfish")
-             << root + QStringLiteral("/DCIM")
-             << root + QStringLiteral("/DCIM/Camera");
+        roots << root + QStringLiteral("/Pictures") << root + QStringLiteral("/DCIM");
     }
+
+    // imago's own exports are results, not sources.
+    const QString exports = QDir(pictures + QStringLiteral("/fiat imago")).absolutePath();
+    QStringList dirs;
+    for (const QString &root : roots)
+        collectFolders(root, exports, 0, dirs);
 
     struct Suffix { const char *text; int kind; };
     static const Suffix suffixes[] = {
         { ".warm.raw16", 3 }, { ".warm.raw12", 3 }, { ".warm.raw10", 3 }, { ".warm.raw8", 3 },
         { ".warm.json", 4 },
         { ".raw16", 1 }, { ".raw12", 1 }, { ".raw10", 1 }, { ".raw8", 1 },
-        { ".json", 2 }, { ".jpg", 0 }, { ".jpeg", 0 }
+        { ".json", 2 }, { ".jpg", 0 }, { ".jpeg", 0 }, { ".png", 0 }
     };
 
     QMap<QString, Found> groups;
