@@ -1,16 +1,18 @@
 # Changelog
 
-## 1.1 — unreleased
+## 1.1 — 2026-10-25
 
 - **Colour noise**, in detail: smooths the coloured speckle of a dark or
   lifted photo and leaves lightness, and so detail, untouched. It belongs to
   the photo, so choosing a look keeps it. Lightness noise (grain) is left out
   on purpose: removing it without smearing detail is too slow for a live
   preview on a phone.
-- **More photos found.** Every folder in Pictures, including Screenshots and
-  folders other apps make, and the folders Android apps save to (DCIM and
-  Pictures in Android storage). imago's own exports are left out.
+- **More photos found.** Every folder in Pictures and Downloads, including
+  Screenshots and folders other apps make, and the folders Android apps save
+  to (DCIM and Pictures in Android storage). imago's own exports and the
+  system wallpapers are left out. New permission: Downloads.
 - **PNG** photos can be developed, and export as JPEG as before.
+- The library filter "jpeg" is now "photo": every photo that is not a RAW.
 
 ## 1.0 — 2026-10-03
 

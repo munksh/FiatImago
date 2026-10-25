@@ -17,10 +17,10 @@ namespace {
 
 const int MaxDepth = 4;
 
-void collectFolders(const QString &path, const QString &skip, int depth, QStringList &out)
+void collectFolders(const QString &path, const QStringList &skip, int depth, QStringList &out)
 {
     const QDir dir(path);
-    if (!dir.exists() || dir.absolutePath() == skip)
+    if (!dir.exists() || skip.contains(dir.absolutePath()))
         return;
     out << dir.absolutePath();
     if (depth >= MaxDepth)
@@ -113,12 +113,15 @@ void Library::setFilter(const QString &filter)
 void Library::refresh()
 {
     // Every folder under these roots is searched, so photos other apps save
-    // in folders of their own are found too: Pictures, Android's DCIM and
-    // Pictures, and the same on a memory card (mounted under /run/media).
+    // in folders of their own are found too: Pictures, Downloads, Android's
+    // DCIM and Pictures, and the same on a memory card (mounted under
+    // /run/media).
     const QString pictures = QStandardPaths::writableLocation(QStandardPaths::PicturesLocation);
+    const QString downloads = QStandardPaths::writableLocation(QStandardPaths::DownloadLocation);
     const QString android = QDir::homePath() + QStringLiteral("/android_storage");
     QStringList roots = QStringList()
             << pictures
+            << downloads
             << android + QStringLiteral("/DCIM")
             << android + QStringLiteral("/Pictures");
     const QList<QStorageInfo> volumes = QStorageInfo::mountedVolumes();
@@ -129,11 +132,14 @@ void Library::refresh()
         roots << root + QStringLiteral("/Pictures") << root + QStringLiteral("/DCIM");
     }
 
-    // imago's own exports are results, not sources.
-    const QString exports = QDir(pictures + QStringLiteral("/fiat imago")).absolutePath();
+    // imago's own exports are results, not sources; Ambiences and Default
+    // hold the system's wallpapers, not the user's photos.
+    QStringList skip;
+    for (const QString &name : { QStringLiteral("fiat imago"), QStringLiteral("Ambiences"), QStringLiteral("Default") })
+        skip << QDir(pictures + QLatin1Char('/') + name).absolutePath();
     QStringList dirs;
     for (const QString &root : roots)
-        collectFolders(root, exports, 0, dirs);
+        collectFolders(root, skip, 0, dirs);
 
     struct Suffix { const char *text; int kind; };
     static const Suffix suffixes[] = {
@@ -229,7 +235,7 @@ void Library::applyFilter()
     for (int i = 0; i < m_all.size(); ++i) {
         const Entry &e = m_all.at(i);
         const bool keep = m_filter == QLatin1String("raw") ? !e.raw.isEmpty()
-                : m_filter == QLatin1String("jpeg") ? e.raw.isEmpty()
+                : m_filter == QLatin1String("photo") ? e.raw.isEmpty()
                 : m_filter == QLatin1String("edited") ? e.edited
                 : true;
         if (keep)

@@ -1,6 +1,6 @@
 Name:       harbour-fiatimago
 Summary:    Develops RAWfish RAW files and photos
-Version:    1.0
+Version:    1.1
 Release:    1
 License:    MIT
 URL:        https://github.com/munksh/FiatImago

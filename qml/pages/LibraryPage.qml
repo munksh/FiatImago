@@ -65,7 +65,7 @@ Page {
                 choices: [
                     { label: qsTr("all"), value: "all" },
                     { label: qsTr("raw"), value: "raw" },
-                    { label: qsTr("jpeg"), value: "jpeg" },
+                    { label: qsTr("photo"), value: "photo" },
                     { label: qsTr("edited"), value: "edited" }
                 ]
                 current: imagoLibrary.filter
@@ -146,8 +146,8 @@ Page {
         horizontalAlignment: Text.AlignHCenter
         wrapMode: Text.WordWrap
         text: imagoLibrary.filter === "edited" ? qsTr("Nothing edited yet.")
-            : imagoLibrary.filter === "raw" ? qsTr("No RAW files in Pictures.\nRAWfish saves them there.")
-            : qsTr("No photos in Pictures yet.")
+            : imagoLibrary.filter === "raw" ? qsTr("No RAW files yet.\nRAWfish saves them in Pictures.")
+            : qsTr("No photos yet.")
         color: FiatImagoTheme.secondaryText
         font.pixelSize: Theme.fontSizeMedium
         font.family: FiatImagoTheme.serif

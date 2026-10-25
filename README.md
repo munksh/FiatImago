@@ -61,10 +61,11 @@ and a balance) and the triangle pattern Sailfish draws on its own
 backgrounds, measured from a screenshot and repeated at a size relative to
 the frame.
 
-Photos (JPEG, PNG and RAWfish RAW) are found in Pictures and every folder in
-it, in Android's DCIM and Pictures, and in Pictures and DCIM on a memory card,
-up to four folders deep. imago's own exports in Pictures/fiat imago are left
-out.
+Photos (JPEG, PNG and RAWfish RAW) are found in Pictures and Downloads and
+every folder in them, in Android's DCIM and Pictures, and in Pictures and DCIM
+on a memory card, up to four folders deep. imago's own exports in
+Pictures/fiat imago and the system wallpapers in Pictures/Ambiences and
+Pictures/Default are left out.
 
 Edits are stored in the app's own data folder (`recipes.json`), keyed by the
 photo's path.
