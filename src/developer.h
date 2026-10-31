@@ -3,6 +3,8 @@
 
 #include <QImage>
 #include <QObject>
+#include <QRectF>
+#include <QSize>
 #include <QThread>
 #include <QTimer>
 #include <QVariantList>
@@ -21,13 +23,18 @@ public slots:
     void load(const QVariantMap &source);
     void render(const QVariantMap &recipe, bool uncropped, bool clipWarning, quint64 generation);
     void inspect(const QVariantMap &recipe, double u, double v, int width, int height);
+    void zoom(const QVariantMap &recipe, const QRectF &window, const QSize &size, bool clipWarning,
+              int request);
     void exportImage(const QVariantMap &recipe, const QVariantMap &options);
 
 signals:
-    void loaded(bool ok, const QString &message, bool raw, double frameAspect, const QImage &original);
+    void loaded(bool ok, const QString &message, bool raw, double frameAspect, const QImage &original,
+                const QSize &fullSize);
     void rendered(const QImage &image, const QVariantList &histogram, quint64 generation);
     void inspected(const QImage &image, int frameWidth, int frameHeight);
     void inspectFailed(const QString &message);
+    void zoomed(const QImage &image, int request);
+    void zoomFailed(const QString &message);
     void exported(const QString &path);
     void exportFailed(const QString &message);
 
@@ -60,6 +67,9 @@ class Developer : public QObject
     Q_PROPERTY(int fullWidth READ fullWidth NOTIFY inspectChanged)
     Q_PROPERTY(int fullHeight READ fullHeight NOTIFY inspectChanged)
     Q_PROPERTY(bool exporting READ exporting NOTIFY exportingChanged)
+    Q_PROPERTY(double frameWidth READ frameWidth NOTIFY frameWidthChanged)
+    Q_PROPERTY(bool zoomBusy READ zoomBusy NOTIFY zoomBusyChanged)
+    Q_PROPERTY(int zoomRequest READ zoomRequest NOTIFY zoomChanged)
 
 public:
     explicit Developer(QObject *parent = nullptr);
@@ -83,10 +93,14 @@ public:
     int fullWidth() const { return m_fullWidth; }
     int fullHeight() const { return m_fullHeight; }
     bool exporting() const { return m_exporting; }
+    double frameWidth() const;
+    bool zoomBusy() const { return m_zoomBusy; }
+    int zoomRequest() const { return m_zoomShown; }
 
     QImage preview() const { return m_preview; }
     QImage original() const { return m_original; }
     QImage inspectImage() const { return m_inspect; }
+    QImage zoomImage() const { return m_zoom; }
 
     Q_INVOKABLE void open(const QVariantMap &source);
     Q_INVOKABLE void set(const QString &name, const QVariant &value);
@@ -97,6 +111,11 @@ public:
     Q_INVOKABLE void applyLook(const QString &id, double strength);
     Q_INVOKABLE QVariantMap lookSettings() const;
     Q_INVOKABLE void inspect(double u, double v, int width, int height);
+    // The part of the frame in view (fractions) rendered sharp at width x
+    // height pixels; returns the request number zoomRequest will carry once
+    // its image has arrived.
+    Q_INVOKABLE int zoom(double x, double y, double w, double h, int width, int height);
+    Q_INVOKABLE void clearZoom();
     Q_INVOKABLE void exportImage(bool half, int quality, bool keepCameraData);
     Q_INVOKABLE void save();
 
@@ -115,25 +134,34 @@ signals:
     void previewChanged();
     void originalChanged();
     void inspectChanged();
+    void frameWidthChanged();
+    void zoomBusyChanged();
+    void zoomChanged();
     void exportFinished(const QString &path);
     void exportFailed(const QString &message);
 
     void requestLoad(const QVariantMap &source);
     void requestRender(const QVariantMap &recipe, bool uncropped, bool clipWarning, quint64 generation);
     void requestInspect(const QVariantMap &recipe, double u, double v, int width, int height);
+    void requestZoom(const QVariantMap &recipe, const QRectF &window, const QSize &size, bool clipWarning,
+                     int request);
     void requestExport(const QVariantMap &recipe, const QVariantMap &options);
 
 private:
-    void onLoaded(bool ok, const QString &message, bool raw, double frameAspect, const QImage &original);
+    void onLoaded(bool ok, const QString &message, bool raw, double frameAspect, const QImage &original,
+                  const QSize &fullSize);
     void onRendered(const QImage &image, const QVariantList &histogram, quint64 generation);
     void onInspected(const QImage &image, int frameWidth, int frameHeight);
     void onInspectFailed(const QString &message);
+    void onZoomed(const QImage &image, int request);
+    void onZoomFailed(const QString &message);
     void onExported(const QString &path);
     void onExportFailed(const QString &message);
 
     void apply(const Recipe &recipe);
     void render();
     void renderInspect();
+    void renderZoom();
     void setBusy(bool busy);
     void setMessage(const QString &message);
 
@@ -165,10 +193,19 @@ private:
     int m_fullWidth = 0;
     int m_fullHeight = 0;
     bool m_exporting = false;
+    QSize m_fullSize;
+    bool m_zoomActive = false;
+    bool m_zoomBusy = false;
+    bool m_zoomDirty = false;
+    int m_zoomNext = 0;
+    int m_zoomShown = -1;
+    QRectF m_zoomWindow;
+    QSize m_zoomSize;
 
     QImage m_preview;
     QImage m_original;
     QImage m_inspect;
+    QImage m_zoom;
 
     static QVariantMap s_clipboard;
 };

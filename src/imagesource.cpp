@@ -5,6 +5,8 @@
 #include <QImage>
 #include <QImageReader>
 
+#include "dng.h"
+
 #include <algorithm>
 #include <cmath>
 
@@ -32,8 +34,13 @@ struct Finish
 {
     float gain[3];
     float matrix[9];
+    // With lens shading, white balance and the clip to white happen per
+    // sample before the shading lifts the edges (see Mosaic), so here only
+    // the matrix is left.
+    bool balanced;
 
     explicit Finish(const RawMeta &meta)
+        : balanced(meta.hasShading)
     {
         double g[3] = { 1.0, 1.0, 1.0 };
         if (meta.hasNeutral) {
@@ -64,9 +71,9 @@ struct Finish
 
     inline void apply(const float in[3], float *out) const
     {
-        const float r = std::min(in[0] * gain[0], 1.0f);
-        const float g = std::min(in[1] * gain[1], 1.0f);
-        const float b = std::min(in[2] * gain[2], 1.0f);
+        const float r = balanced ? in[0] : std::min(in[0] * gain[0], 1.0f);
+        const float g = balanced ? in[1] : std::min(in[1] * gain[1], 1.0f);
+        const float b = balanced ? in[2] : std::min(in[2] * gain[2], 1.0f);
         out[0] = matrix[0] * r + matrix[1] * g + matrix[2] * b;
         out[1] = matrix[3] * r + matrix[4] * g + matrix[5] * b;
         out[2] = matrix[6] * r + matrix[7] * g + matrix[8] * b;
@@ -76,14 +83,15 @@ struct Finish
 class Mosaic
 {
 public:
-    Mosaic(const QByteArray &data, const RawMeta &meta)
-        : m_base(reinterpret_cast<const uchar *>(data.constData()))
+    Mosaic(const QByteArray &data, const RawMeta &meta, const int channels[4], const Finish &finish)
+        : m_base(reinterpret_cast<const uchar *>(data.constData()) + meta.dataOffset)
         , m_meta(meta)
     {
         for (int i = 0; i < 4; ++i) {
             const double range = meta.whiteLevel - meta.black[i];
             m_black[i] = float(meta.black[i]);
             m_scale[i] = range > 0.0 ? float(1.0 / range) : 0.0f;
+            m_balance[i] = finish.gain[channels[i]];
         }
     }
 
@@ -91,11 +99,37 @@ public:
     {
         const int raw = sample(x, y);
         const int idx = ((y & 1) << 1) | (x & 1);
-        const float v = (raw - m_black[idx]) * m_scale[idx];
+        float v = (raw - m_black[idx]) * m_scale[idx];
+        if (m_meta.hasShading) {
+            // The sensor clips before the lens shading is undone, so a
+            // sample is clipped at white first and lifted after: a bright
+            // corner keeps its gradation above 1 for the highlights slider,
+            // and only what the sensor really lost turns white.
+            v = std::min(v * m_balance[idx], 1.0f) * shading(m_meta.shading[idx], x, y);
+        }
         return v < 0.0f ? 0.0f : v;
     }
 
 private:
+    // The gain at a pixel, bilinear between the map's points.
+    static inline float shading(const ShadingMap &m, int x, int y)
+    {
+        const double v = (double(y - m.top) / (m.bottom - m.top) - m.originV) / m.spacingV;
+        const double u = (double(x - m.left) / (m.right - m.left) - m.originH) / m.spacingH;
+        const double fv = std::min(double(m.rows - 1), std::max(0.0, v));
+        const double fu = std::min(double(m.cols - 1), std::max(0.0, u));
+        const int r0 = std::min(m.rows - 2, int(fv));
+        const int c0 = std::min(m.cols - 2, int(fu));
+        if (r0 < 0 || c0 < 0)
+            return m.gains.at(0);
+        const float tv = float(fv - r0);
+        const float tu = float(fu - c0);
+        const float *g = m.gains.constData() + r0 * m.cols + c0;
+        const float top = g[0] + (g[1] - g[0]) * tu;
+        const float bottom = g[m.cols] + (g[m.cols + 1] - g[m.cols]) * tu;
+        return top + (bottom - top) * tv;
+    }
+
     // Android's packings: RAW10 keeps the high eight bits of four pixels in
     // four bytes and their low two bits in a fifth; RAW12 keeps two pixels
     // in three bytes, the shared byte holding both low nibbles.
@@ -116,7 +150,7 @@ private:
         }
         default: {
             const uchar *p = row + qint64(x) * std::max(2, m_meta.pixelStride);
-            return p[0] | (p[1] << 8);
+            return m_meta.bigEndian ? (p[0] << 8) | p[1] : p[0] | (p[1] << 8);
         }
         }
     }
@@ -125,6 +159,7 @@ private:
     const RawMeta &m_meta;
     float m_black[4];
     float m_scale[4];
+    float m_balance[4];
 };
 
 inline int reflect(int i, int size)
@@ -251,7 +286,8 @@ bool ImageSource::loadRaw(const QString &rawPath, const QString &json, const QSt
                           bool halfSize, ImageBuffer &out, RawMeta *metaOut, QString *error)
 {
     RawMeta meta;
-    if (!readRawMeta(rawPath, json, altJson, meta, error))
+    const bool dng = rawPath.endsWith(QLatin1String(".dng"), Qt::CaseInsensitive);
+    if (dng ? !readDngMeta(rawPath, meta, error) : !readRawMeta(rawPath, json, altJson, meta, error))
         return false;
 
     QFile file(rawPath);
@@ -261,17 +297,17 @@ bool ImageSource::loadRaw(const QString &rawPath, const QString &json, const QSt
         return false;
     }
     const QByteArray data = file.readAll();
-    const qint64 needed = qint64(meta.height - 1) * meta.rowStride + meta.bytesPerRow();
+    const qint64 needed = meta.dataOffset + qint64(meta.height - 1) * meta.rowStride + meta.bytesPerRow();
     if (data.size() < needed) {
         if (error)
-            *error = QStringLiteral("The RAW file is shorter than its sidecar says.");
+            *error = QStringLiteral("The RAW file is shorter than its metadata says.");
         return false;
     }
 
     int channels[4];
     cfaChannels(meta.cfa, channels);
-    const Mosaic mosaic(data, meta);
     const Finish finish(meta);
+    const Mosaic mosaic(data, meta, channels, finish);
 
     if (halfSize) {
         const int w = meta.width / 2;

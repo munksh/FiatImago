@@ -21,6 +21,7 @@ void DevelopView::setDeveloper(Developer *developer)
         connect(m_developer, &Developer::previewChanged, this, &DevelopView::refresh);
         connect(m_developer, &Developer::originalChanged, this, &DevelopView::refresh);
         connect(m_developer, &Developer::inspectChanged, this, &DevelopView::refresh);
+        connect(m_developer, &Developer::zoomChanged, this, &DevelopView::refresh);
     }
     emit developerChanged();
     refresh();
@@ -58,6 +59,8 @@ QImage DevelopView::currentImage() const
         return m_developer->original();
     if (m_mode == QLatin1String("inspect"))
         return m_developer->inspectImage();
+    if (m_mode == QLatin1String("zoom"))
+        return m_developer->zoomImage();
     return m_developer->preview();
 }
 
@@ -66,7 +69,10 @@ void DevelopView::refresh()
     const QImage image = currentImage();
     QRectF rect;
     if (!image.isNull() && width() > 0 && height() > 0) {
-        if (m_mode == QLatin1String("inspect")) {
+        if (m_mode == QLatin1String("zoom")) {
+            // Placed and sized by the page to cover exactly the part in view.
+            rect = QRectF(0.0, 0.0, width(), height());
+        } else if (m_mode == QLatin1String("inspect")) {
             rect = QRectF((width() - image.width()) / 2.0, (height() - image.height()) / 2.0,
                           image.width(), image.height());
         } else {

@@ -28,7 +28,7 @@ sfdk build
 ## How it works
 
 Everything is developed on the CPU in C++ with 32-bit floats, one code path
-for the live preview (1200 px), the 100 % view and the full-size export, so
+for the live preview (1200 px), the zoomed view, the loupe and the full-size export, so
 what you see is what you export. Radii are fractions of the frame width, not
 pixels, for the same reason.
 
@@ -38,9 +38,14 @@ pixels, for the same reason.
   position, scaled to the white level, white balance from
   `neutral_color_point`, colour through the camera's own
   `capture_color_transform` for the shot (or, without it, `forward_matrix2`
-  or 1) into linear sRGB. Preview bins each 2×2 cell; export and 100 % demosaic with
+  or 1) into linear sRGB. Preview bins each 2×2 cell; export, zoom and loupe demosaic with
   Malvar–He–Cutler. The RAW is turned to match its sibling JPEG and brought
   to the JPEG's brightness.
+- **DNG:** uncompressed 16-bit Bayer DNGs, as RAWfish-ir writes them, read
+  without a sidecar: levels, `AsShotNeutral`, the forward matrix weighed
+  between the two calibration lights for the shot's white balance, the
+  orientation tag, and the lens shading `GainMap` from `OpcodeList2`, scaled
+  so its least gain is 1.
 - **JPEG:** read upright (EXIF orientation), linearised.
 - **Develop:** crop / straighten / perspective / rotate / flip as one
   sampling transform, zoomed just enough that no empty corners show,
@@ -61,7 +66,7 @@ and a balance) and the triangle pattern Sailfish draws on its own
 backgrounds, measured from a screenshot and repeated at a size relative to
 the frame.
 
-Photos (JPEG, PNG and RAWfish RAW) are found in Pictures and Downloads and
+Photos (JPEG, PNG, RAWfish RAW and DNG) are found in Pictures and Downloads and
 every folder in them, in Android's DCIM and Pictures, and in Pictures and DCIM
 on a memory card, up to four folders deep. imago's own exports in
 Pictures/fiat imago and the system wallpapers in Pictures/Ambiences and

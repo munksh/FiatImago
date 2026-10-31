@@ -145,7 +145,7 @@ void Library::refresh()
     static const Suffix suffixes[] = {
         { ".warm.raw16", 3 }, { ".warm.raw12", 3 }, { ".warm.raw10", 3 }, { ".warm.raw8", 3 },
         { ".warm.json", 4 },
-        { ".raw16", 1 }, { ".raw12", 1 }, { ".raw10", 1 }, { ".raw8", 1 },
+        { ".raw16", 1 }, { ".raw12", 1 }, { ".raw10", 1 }, { ".raw8", 1 }, { ".dng", 1 },
         { ".json", 2 }, { ".jpg", 0 }, { ".jpeg", 0 }, { ".png", 0 }
     };
 
@@ -184,7 +184,9 @@ void Library::refresh()
         e.name = QFileInfo(it.key()).fileName();
         e.jpeg = f.jpeg;
         e.modified = f.modified;
-        if (!f.raw.isEmpty() && (!f.json.isEmpty() || !f.warmJson.isEmpty())) {
+        // A DNG carries its own metadata; the other RAW files need a sidecar.
+        const bool dng = f.raw.endsWith(QLatin1String(".dng"), Qt::CaseInsensitive);
+        if (!f.raw.isEmpty() && (dng || !f.json.isEmpty() || !f.warmJson.isEmpty())) {
             e.raw = f.raw;
             e.json = f.json.isEmpty() ? f.warmJson : f.json;
             e.altJson = f.json.isEmpty() ? QString() : f.warmJson;

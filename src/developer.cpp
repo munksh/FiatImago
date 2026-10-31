@@ -7,6 +7,8 @@
 #include "recipestore.h"
 
 #include <QByteArray>
+#include <QImageIOHandler>
+#include <QImageReader>
 
 #include <algorithm>
 
@@ -36,6 +38,7 @@ void DevelopWorker::load(const QVariantMap &source)
     const QString raw = source.value(QStringLiteral("raw")).toString();
     QString message;
     m_raw = false;
+    QSize fullSize;
 
     if (!raw.isEmpty()) {
         RawMeta meta;
@@ -51,13 +54,14 @@ void DevelopWorker::load(const QVariantMap &source)
             else if (!jpeg.isEmpty())
                 m_turns = ImageSource::matchRotation(m_preview, jpeg);
             m_preview = Imaging::rotated(m_preview, m_turns);
+            fullSize = (m_turns % 2) ? QSize(meta.height, meta.width) : QSize(meta.width, meta.height);
             if (!jpeg.isEmpty())
                 m_gain = ImageSource::matchBrightness(m_preview, jpeg);
             Imaging::scale(m_preview, m_gain);
         } else if (!jpeg.isEmpty()) {
             message = tr("The RAW could not be read (%1). Showing the JPEG.").arg(error);
         } else {
-            emit loaded(false, error, false, 1.0, QImage());
+            emit loaded(false, error, false, 1.0, QImage(), QSize());
             return;
         }
     }
@@ -65,16 +69,21 @@ void DevelopWorker::load(const QVariantMap &source)
     if (!m_raw) {
         QString error;
         if (!ImageSource::loadJpeg(jpeg, PreviewSource, m_preview, &error)) {
-            emit loaded(false, error.isEmpty() ? tr("The photo could not be read.") : error, false, 1.0, QImage());
+            emit loaded(false, error.isEmpty() ? tr("The photo could not be read.") : error, false, 1.0, QImage(), QSize());
             return;
         }
+        // The full size without decoding it, turned as the reader will turn it.
+        QImageReader reader(jpeg);
+        fullSize = reader.size();
+        if (reader.transformation() & QImageIOHandler::TransformationRotate90)
+            fullSize.transpose();
     }
 
     const Recipe neutral;
     const QSizeF frame = Pipeline::frameSize(m_preview.width, m_preview.height, neutral, false);
     const QImage original = Pipeline::render(m_preview, neutral, m_raw, false,
                                              Pipeline::fitted(frame, PreviewSize));
-    emit loaded(true, message, m_raw, double(m_preview.width) / m_preview.height, original);
+    emit loaded(true, message, m_raw, double(m_preview.width) / m_preview.height, original, fullSize);
 }
 
 void DevelopWorker::render(const QVariantMap &recipe, bool uncropped, bool clipWarning, quint64 generation)
@@ -122,6 +131,18 @@ void DevelopWorker::inspect(const QVariantMap &recipe, double u, double v, int w
     emit inspected(image, int(frame.width()), int(frame.height()));
 }
 
+void DevelopWorker::zoom(const QVariantMap &recipe, const QRectF &window, const QSize &size, bool clipWarning,
+                         int request)
+{
+    QString error;
+    if (!ensureFull(&error)) {
+        emit zoomFailed(error);
+        return;
+    }
+    const Recipe r = Recipe::fromMap(recipe);
+    emit zoomed(Pipeline::render(m_full, r, m_raw, true, size, window, clipWarning), request);
+}
+
 void DevelopWorker::exportImage(const QVariantMap &recipe, const QVariantMap &options)
 {
     QString error;
@@ -161,12 +182,15 @@ Developer::Developer(QObject *parent)
     connect(this, &Developer::requestLoad, m_worker, &DevelopWorker::load);
     connect(this, &Developer::requestRender, m_worker, &DevelopWorker::render);
     connect(this, &Developer::requestInspect, m_worker, &DevelopWorker::inspect);
+    connect(this, &Developer::requestZoom, m_worker, &DevelopWorker::zoom);
     connect(this, &Developer::requestExport, m_worker, &DevelopWorker::exportImage);
 
     connect(m_worker, &DevelopWorker::loaded, this, &Developer::onLoaded);
     connect(m_worker, &DevelopWorker::rendered, this, &Developer::onRendered);
     connect(m_worker, &DevelopWorker::inspected, this, &Developer::onInspected);
     connect(m_worker, &DevelopWorker::inspectFailed, this, &Developer::onInspectFailed);
+    connect(m_worker, &DevelopWorker::zoomed, this, &Developer::onZoomed);
+    connect(m_worker, &DevelopWorker::zoomFailed, this, &Developer::onZoomFailed);
     connect(m_worker, &DevelopWorker::exported, this, &Developer::onExported);
     connect(m_worker, &DevelopWorker::exportFailed, this, &Developer::onExportFailed);
 
@@ -190,6 +214,7 @@ void Developer::setUncropped(bool uncropped)
         return;
     m_uncropped = uncropped;
     emit uncroppedChanged();
+    emit frameWidthChanged();
     render();
 }
 
@@ -200,6 +225,8 @@ void Developer::setShowClipping(bool show)
     m_showClipping = show;
     emit showClippingChanged();
     render();
+    if (m_zoomActive)
+        renderZoom();
 }
 
 void Developer::setLoupe(bool loupe)
@@ -214,6 +241,9 @@ void Developer::open(const QVariantMap &source)
 {
     m_key = source.value(QStringLiteral("key")).toString();
     m_loaded = false;
+    clearZoom();
+    m_zoom = QImage();
+    m_zoomShown = -1;
     emit loadedChanged();
     RecipeStore *store = RecipeStore::instance();
     m_recipe = store ? Recipe::fromMap(store->get(m_key)) : Recipe();
@@ -297,6 +327,34 @@ void Developer::inspect(double u, double v, int width, int height)
     renderInspect();
 }
 
+double Developer::frameWidth() const
+{
+    if (!m_loaded || m_fullSize.isEmpty())
+        return 0.0;
+    return Pipeline::frameSize(m_fullSize.width(), m_fullSize.height(), m_recipe, !m_uncropped).width();
+}
+
+int Developer::zoom(double x, double y, double w, double h, int width, int height)
+{
+    m_zoomWindow = QRectF(x, y, w, h);
+    m_zoomSize = QSize(std::max(1, width), std::max(1, height));
+    m_zoomActive = true;
+    const int request = ++m_zoomNext;
+    // A new view replaces any render still waiting; the one under way is
+    // let finish and then followed by this one.
+    m_zoomDirty = m_zoomBusy;
+    if (!m_zoomBusy)
+        renderZoom();
+    return request;
+}
+
+void Developer::clearZoom()
+{
+    m_zoomActive = false;
+    m_zoomDirty = false;
+    ++m_zoomNext;
+}
+
 void Developer::exportImage(bool half, int quality, bool keepCameraData)
 {
     if (!m_loaded || m_exporting)
@@ -323,7 +381,8 @@ void Developer::save()
         store->put(m_key, m_recipe.toMap());
 }
 
-void Developer::onLoaded(bool ok, const QString &message, bool raw, double frameAspect, const QImage &original)
+void Developer::onLoaded(bool ok, const QString &message, bool raw, double frameAspect, const QImage &original,
+                         const QSize &fullSize)
 {
     setBusy(false);
     setMessage(message);
@@ -332,8 +391,10 @@ void Developer::onLoaded(bool ok, const QString &message, bool raw, double frame
     m_raw = raw;
     m_frameAspect = frameAspect;
     m_original = original;
+    m_fullSize = fullSize;
     m_loaded = true;
     emit loadedChanged();
+    emit frameWidthChanged();
     emit originalChanged();
     render();
     if (m_loupe)
@@ -377,6 +438,30 @@ void Developer::onInspectFailed(const QString &message)
     setMessage(message);
 }
 
+void Developer::onZoomed(const QImage &image, int request)
+{
+    m_zoomBusy = false;
+    if (m_zoomActive && !image.isNull()) {
+        m_zoom = image;
+        m_zoomShown = request;
+        emit zoomChanged();
+    }
+    if (m_zoomDirty) {
+        m_zoomDirty = false;
+        renderZoom();
+    }
+    if (!m_zoomBusy)
+        emit zoomBusyChanged();
+}
+
+void Developer::onZoomFailed(const QString &message)
+{
+    m_zoomBusy = false;
+    m_zoomDirty = false;
+    emit zoomBusyChanged();
+    setMessage(message);
+}
+
 void Developer::onExported(const QString &path)
 {
     m_exporting = false;
@@ -397,9 +482,12 @@ void Developer::apply(const Recipe &recipe)
         return;
     m_recipe = recipe;
     emit recipeChanged();
+    emit frameWidthChanged();
     render();
     if (m_loupe)
         renderInspect();
+    if (m_zoomActive)
+        renderZoom();
     m_saveTimer.start();
 }
 
@@ -426,6 +514,19 @@ void Developer::renderInspect()
     m_inspectBusy = true;
     emit inspectBusyChanged();
     emit requestInspect(m_recipe.toMap(), m_inspectU, m_inspectV, m_inspectWidth, m_inspectHeight);
+}
+
+void Developer::renderZoom()
+{
+    if (!m_loaded || !m_zoomActive)
+        return;
+    if (m_zoomBusy) {
+        m_zoomDirty = true;
+        return;
+    }
+    m_zoomBusy = true;
+    emit zoomBusyChanged();
+    emit requestZoom(m_recipe.toMap(), m_zoomWindow, m_zoomSize, m_showClipping, m_zoomNext);
 }
 
 void Developer::setBusy(bool busy)

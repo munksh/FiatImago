@@ -22,8 +22,13 @@ QImage ThumbnailProvider::requestImage(const QString &id, QSize *size, const QSi
     if (decoded.startsWith(QLatin1String("raw\n"))) {
         const QStringList parts = decoded.split(QLatin1Char('\n'));
         ImageBuffer buffer;
+        RawMeta meta;
         if (parts.size() >= 4
-                && ImageSource::loadRaw(parts.at(1), parts.at(2), parts.at(3), true, buffer, nullptr, nullptr)) {
+                && ImageSource::loadRaw(parts.at(1), parts.at(2), parts.at(3), true, buffer, &meta, nullptr)) {
+            // A RAW without a JPEG beside it is shown upright from its own
+            // orientation, as the editor will show it.
+            if (meta.orientation > 0)
+                buffer = Imaging::rotated(buffer, meta.orientation / 90);
             const Recipe neutral;
             const QSizeF frame = Pipeline::frameSize(buffer.width, buffer.height, neutral, false);
             const double scale = double(shortEdge) / std::min(frame.width(), frame.height());

@@ -1,5 +1,20 @@
 # Changelog
 
+## 1.2 — 2026-10-31
+
+- **DNG** from RAWfish-ir: read without a sidecar, with the white balance,
+  colour and orientation the camera recorded, and the lens shading
+  corrected, so the corners are as bright as the centre. Only uncompressed
+  16-bit DNGs are read.
+- **Pinch to zoom** in the photo, up to 200 %, and drag to look around.
+  While the fingers move the preview is enlarged; when they lift, the part in
+  view is developed sharp from the full-size photo and follows the sliders.
+  Double tap goes to 100 % at that point, and back to the whole photo. This
+  replaces the separate 100 % page.
+- The loupe stays in detail: sharpening and noise only show at 100 %, so it
+  keeps that scale while you drag.
+- A RAW without a JPEG beside it now shows upright in the library too.
+
 ## 1.1 — 2026-10-25
 
 - **Colour noise**, in detail: smooths the coloured speckle of a dark or

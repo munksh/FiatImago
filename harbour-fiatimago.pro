@@ -15,6 +15,7 @@ LIBS += -lpthread
 HEADERS += \
     src/imaging.h \
     src/rawmeta.h \
+    src/dng.h \
     src/imagesource.h \
     src/recipe.h \
     src/pipeline.h \
@@ -30,6 +31,7 @@ SOURCES += \
     src/main.cpp \
     src/imaging.cpp \
     src/rawmeta.cpp \
+    src/dng.cpp \
     src/imagesource.cpp \
     src/recipe.cpp \
     src/pipeline.cpp \
@@ -48,7 +50,6 @@ DISTFILES += \
     qml/cover/CoverPage.qml \
     qml/pages/LibraryPage.qml \
     qml/pages/EditPage.qml \
-    qml/pages/InspectPage.qml \
     qml/pages/ExportPage.qml \
     qml/pages/SaveLookPage.qml \
     qml/pages/AboutPage.qml \

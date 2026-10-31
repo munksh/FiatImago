@@ -29,7 +29,60 @@ Page {
         dev.inspect(loupeU, loupeV, loupeSize, loupeSize)
     }
 
-    onToolChanged: if (tool === "detail") showLoupe()
+    // Zoom in the photo area. 1 shows the whole frame; zoomU and zoomV are
+    // the point of the frame, in fractions, at the centre of the view. While
+    // fingers move, the preview is only enlarged; when they lift, the part in
+    // view is developed sharp from the full-size photo.
+    property real zoom: 1
+    property real zoomU: 0.5
+    property real zoomV: 0.5
+    property bool zooming: false
+    property int zoomRequest: -1
+    readonly property bool zoomed: zoom > 1.001
+    readonly property real fitScale: dev.frameWidth > 0 && view.paintedRect.width > 0
+                                     ? view.paintedRect.width / dev.frameWidth : 0
+    readonly property real maxZoom: fitScale > 0 ? Math.max(1, 2 / fitScale) : 1
+
+    // Half the part in view, in frame fractions, at zoom z.
+    function halfSpan(z, viewSize, paintedSize) {
+        return paintedSize > 0 ? Math.min(0.5, viewSize / (2 * paintedSize * z)) : 0.5
+    }
+
+    function clampZoomCentre() {
+        var r = view.paintedRect
+        var hu = halfSpan(zoom, lens.width, r.width)
+        var hv = halfSpan(zoom, lens.height, r.height)
+        zoomU = Math.max(hu, Math.min(1 - hu, zoomU))
+        zoomV = Math.max(hv, Math.min(1 - hv, zoomV))
+    }
+
+    function requestZoom() {
+        if (!zoomed) {
+            dev.clearZoom()
+            zoomRequest = -1
+            return
+        }
+        var r = view.paintedRect
+        var hu = halfSpan(zoom, lens.width, r.width)
+        var hv = halfSpan(zoom, lens.height, r.height)
+        zoomRequest = dev.zoom(zoomU - hu, zoomV - hv, 2 * hu, 2 * hv,
+                               Math.round(2 * hu * r.width * zoom), Math.round(2 * hv * r.height * zoom))
+    }
+
+    function resetZoom() {
+        zoom = 1
+        zoomU = 0.5
+        zoomV = 0.5
+        zooming = false
+        requestZoom()
+    }
+
+    onToolChanged: {
+        if (tool === "crop")
+            resetZoom()
+        if (tool === "detail")
+            showLoupe()
+    }
 
     function resetMixer() {
         var bands = ["Red", "Orange", "Yellow", "Green", "Aqua", "Blue", "Purple", "Magenta"]
@@ -129,7 +182,10 @@ Page {
             MenuItem {
                 text: qsTr("Reset all")
                 color: FiatImagoTheme.primaryText
-                onClicked: dev.resetAll()
+                onClicked: {
+                    page.resetZoom()
+                    dev.resetAll()
+                }
             }
             MenuItem {
                 text: qsTr("Copy settings")
@@ -158,7 +214,7 @@ Page {
                 onClicked: pageStack.push(Qt.resolvedUrl("ExportPage.qml"), {
                     developer: dev,
                     name: page.shortName,
-                    hasCameraData: page.kind() === "jpeg"
+                    hasCameraData: page.kind() === "jpeg" && jpegPath !== ""
                 })
             }
         }
@@ -177,35 +233,152 @@ Page {
                 width: parent.width
                 height: Math.round(page.height * 0.5)
 
-                DevelopView {
-                    id: view
+                Item {
+                    id: lens
                     anchors.fill: parent
                     anchors.leftMargin: Theme.paddingMedium
                     anchors.rightMargin: Theme.paddingMedium
                     anchors.topMargin: histogram.visible ? histogram.height + Theme.paddingSmall : 0
                     anchors.bottomMargin: Theme.paddingLarge
-                    developer: dev
-                    mode: page.holding ? "original" : "preview"
+                    clip: true
+
+                    DevelopView {
+                        id: view
+                        width: lens.width
+                        height: lens.height
+                        developer: dev
+                        mode: page.holding ? "original" : "preview"
+                        transform: [
+                            Scale {
+                                xScale: page.zoom
+                                yScale: page.zoom
+                            },
+                            Translate {
+                                x: lens.width / 2 - (view.paintedRect.x + page.zoomU * view.paintedRect.width) * page.zoom
+                                y: lens.height / 2 - (view.paintedRect.y + page.zoomV * view.paintedRect.height) * page.zoom
+                            }
+                        ]
+                    }
+
+                    // The part in view, developed sharp; shown once it matches
+                    // what the fingers left.
+                    DevelopView {
+                        readonly property real spanW: 2 * page.halfSpan(page.zoom, lens.width, view.paintedRect.width)
+                                                      * view.paintedRect.width * page.zoom
+                        readonly property real spanH: 2 * page.halfSpan(page.zoom, lens.height, view.paintedRect.height)
+                                                      * view.paintedRect.height * page.zoom
+                        visible: page.zoomed && !page.zooming && !page.holding
+                                 && dev.zoomRequest === page.zoomRequest
+                        x: (lens.width - spanW) / 2
+                        y: (lens.height - spanH) / 2
+                        width: spanW
+                        height: spanH
+                        developer: dev
+                        mode: "zoom"
+                    }
                 }
 
-                MouseArea {
-                    anchors.fill: view
+                PinchArea {
+                    id: photoPinch
+                    anchors.fill: lens
                     enabled: page.tool !== "crop" && dev.loaded
-                    onPressAndHold: page.holding = true
-                    onReleased: page.holding = false
-                    onCanceled: page.holding = false
-                    onClicked: {
+
+                    property real startZoom: 1
+                    property real startU: 0.5
+                    property real startV: 0.5
+
+                    onPinchStarted: {
+                        startZoom = page.zoom
+                        startU = page.zoomU
+                        startV = page.zoomV
+                        page.zooming = true
+                    }
+                    onPinchUpdated: {
                         var r = view.paintedRect
                         if (r.width <= 0 || r.height <= 0) return
-                        var u = (mouse.x - r.x) / r.width
-                        var v = (mouse.y - r.y) / r.height
-                        if (u < 0 || u > 1 || v < 0 || v > 1) return
-                        if (page.tool === "detail") {
+                        var z = Math.max(1, Math.min(page.maxZoom, startZoom * pinch.scale))
+                        // The point under the fingers stays under them.
+                        var pu = startU + (pinch.startCenter.x - lens.width / 2) / (r.width * startZoom)
+                        var pv = startV + (pinch.startCenter.y - lens.height / 2) / (r.height * startZoom)
+                        page.zoom = z
+                        page.zoomU = pu - (pinch.center.x - lens.width / 2) / (r.width * z)
+                        page.zoomV = pv - (pinch.center.y - lens.height / 2) / (r.height * z)
+                        page.clampZoomCentre()
+                    }
+                    onPinchFinished: {
+                        page.zooming = false
+                        page.requestZoom()
+                    }
+
+                    MouseArea {
+                        anchors.fill: parent
+                        preventStealing: page.zoomed
+
+                        property real startX: 0
+                        property real startY: 0
+                        property real startU: 0.5
+                        property real startV: 0.5
+                        property bool moved: false
+
+                        function finishMove() {
+                            page.holding = false
+                            if (!moved) return
+                            page.zooming = false
+                            page.requestZoom()
+                        }
+
+                        onPressed: {
+                            startX = mouse.x
+                            startY = mouse.y
+                            startU = page.zoomU
+                            startV = page.zoomV
+                            moved = false
+                        }
+                        onPositionChanged: {
+                            if (!page.zoomed) return
+                            var dx = mouse.x - startX
+                            var dy = mouse.y - startY
+                            if (!moved && Math.abs(dx) + Math.abs(dy) > Theme.startDragDistance) {
+                                moved = true
+                                page.holding = false
+                                page.zooming = true
+                            }
+                            if (!moved) return
+                            var r = view.paintedRect
+                            page.zoomU = startU - dx / (r.width * page.zoom)
+                            page.zoomV = startV - dy / (r.height * page.zoom)
+                            page.clampZoomCentre()
+                        }
+                        onPressAndHold: if (!moved) page.holding = true
+                        onReleased: finishMove()
+                        onCanceled: finishMove()
+                        onClicked: {
+                            if (moved || page.zoomed || page.tool !== "detail") return
+                            var r = view.paintedRect
+                            if (r.width <= 0 || r.height <= 0) return
+                            var u = (mouse.x - r.x) / r.width
+                            var v = (mouse.y - r.y) / r.height
+                            if (u < 0 || u > 1 || v < 0 || v > 1) return
                             page.loupeU = u
                             page.loupeV = v
                             page.showLoupe()
-                        } else {
-                            pageStack.push(Qt.resolvedUrl("InspectPage.qml"), { developer: dev, u: u, v: v })
+                        }
+                        onDoubleClicked: {
+                            if (page.zoomed) {
+                                page.resetZoom()
+                                return
+                            }
+                            var r = view.paintedRect
+                            if (r.width <= 0 || r.height <= 0 || page.fitScale <= 0) return
+                            var u = (mouse.x - r.x) / r.width
+                            var v = (mouse.y - r.y) / r.height
+                            if (u < 0 || u > 1 || v < 0 || v > 1) return
+                            // A double tap goes straight to 100 % at that point.
+                            page.zoom = Math.max(1, Math.min(page.maxZoom, 1 / page.fitScale))
+                            page.zoomU = u
+                            page.zoomV = v
+                            page.clampZoomCentre()
+                            page.requestZoom()
                         }
                     }
                 }
@@ -214,9 +387,9 @@ Page {
                     readonly property rect r: view.paintedRect
                     readonly property real side: dev.fullWidth > 0
                                                  ? page.loupeSize / dev.fullWidth * r.width : 0
-                    visible: page.tool === "detail" && dev.loaded && side > 0
-                    x: view.x + r.x + page.loupeU * r.width - side / 2
-                    y: view.y + r.y + page.loupeV * r.height - side / 2
+                    visible: page.tool === "detail" && dev.loaded && !page.zoomed && side > 0
+                    x: lens.x + r.x + page.loupeU * r.width - side / 2
+                    y: lens.y + r.y + page.loupeV * r.height - side / 2
                     width: side
                     height: side
                     color: "transparent"
@@ -226,9 +399,9 @@ Page {
 
                 Rectangle {
                     id: loupe
-                    visible: page.tool === "detail" && dev.loaded
-                    anchors.right: view.right
-                    anchors.bottom: view.bottom
+                    visible: page.tool === "detail" && dev.loaded && !page.zoomed
+                    anchors.right: lens.right
+                    anchors.bottom: lens.bottom
                     width: page.loupeSize + 4
                     height: page.loupeSize + 4
                     color: FiatImagoTheme.paper
@@ -259,8 +432,14 @@ Page {
                     }
                 }
 
+                BusyIndicator {
+                    anchors.centerIn: lens
+                    size: BusyIndicatorSize.Small
+                    running: page.zoomed && !page.zooming && dev.zoomBusy
+                }
+
                 CropOverlay {
-                    anchors.fill: view
+                    anchors.fill: lens
                     visible: page.tool === "crop" && dev.loaded
                     frame: view.paintedRect
                     cropX: page.value("cropX")
@@ -282,11 +461,23 @@ Page {
                 }
 
                 Label {
+                    anchors.left: parent.left
+                    anchors.leftMargin: Theme.horizontalPageMargin
+                    anchors.bottom: parent.bottom
+                    visible: dev.loaded && page.zoomed && page.fitScale > 0
+                    text: Math.round(page.zoom * page.fitScale * 100) + " %"
+                    color: FiatImagoTheme.secondaryText
+                    font.pixelSize: Theme.fontSizeTiny
+                }
+
+                Label {
                     anchors.right: parent.right
                     anchors.rightMargin: Theme.horizontalPageMargin
                     anchors.bottom: parent.bottom
                     visible: dev.loaded && page.tool !== "crop"
-                    text: page.holding ? qsTr("original") : qsTr("hold for original")
+                    text: page.holding ? qsTr("original")
+                                       : page.zoomed ? qsTr("double tap for the whole photo")
+                                                     : qsTr("pinch to zoom, hold for original")
                     color: FiatImagoTheme.secondaryText
                     font.pixelSize: Theme.fontSizeTiny
                 }
@@ -670,7 +861,7 @@ Page {
                     x: Theme.horizontalPageMargin
                     width: parent.width - 2 * Theme.horizontalPageMargin
                     wrapMode: Text.WordWrap
-                    text: qsTr("The loupe shows the photo at 100 %. Tap the photo to move it.")
+                    text: qsTr("Sharpening and noise only show at 100 %, so the loupe stays on that scale while you drag. Tap the photo to move it.")
                     color: FiatImagoTheme.secondaryText
                     font.pixelSize: Theme.fontSizeExtraSmall
                 }

@@ -2,6 +2,27 @@
 #define RAWMETA_H
 
 #include <QString>
+#include <QVector>
+
+// A DNG GainMap for one CFA position: a rows x cols grid of gains over the
+// area [top, bottom) x [left, right), placed by origin and spacing in
+// fractions of that area.
+struct ShadingMap
+{
+    int rows = 0;
+    int cols = 0;
+    int top = 0;
+    int left = 0;
+    int bottom = 0;
+    int right = 0;
+    double originV = 0.0;
+    double originH = 0.0;
+    double spacingV = 0.0;
+    double spacingH = 0.0;
+    QVector<float> gains;
+
+    bool isValid() const { return rows > 0 && cols > 0 && gains.size() == rows * cols && bottom > top && right > left; }
+};
 
 struct RawMeta
 {
@@ -20,6 +41,14 @@ struct RawMeta
     double capture[9] = { 1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0 };
     bool hasCapture = false;
     int orientation = -1;
+
+    // Where the samples start in the file, and their byte order: a DNG keeps
+    // its pixels after the tags, in the file's own byte order.
+    qint64 dataOffset = 0;
+    bool bigEndian = false;
+    // Lens shading per CFA position (index ((y & 1) << 1) | (x & 1)).
+    ShadingMap shading[4];
+    bool hasShading = false;
 
     bool isValid() const;
     int bytesPerRow() const;
